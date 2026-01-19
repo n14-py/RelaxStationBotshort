@@ -1,31 +1,25 @@
-# Usamos una imagen de Node.js 18 que tenga Alpine (base de Linux ligera)
-FROM node:18-alpine
+# Usamos una imagen ligera de Node 18
+FROM node:18-slim
 
-# 1. Instalar dependencias del sistema
-# - ffmpeg: El transmisor de video (¡El motor!)
-# - bash, tzdata: Utilidades estándar
-RUN apk add --no-cache ffmpeg bash tzdata
+# 1. INSTALAR FFMPEG Y DEPENDENCIAS DE SISTEMA
+# Esto es vital. Sin esto, el bot fallará al intentar transmitir.
+RUN apt-get update && \
+    apt-get install -y ffmpeg python3 make g++ && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# 2. Configurar zona horaria (Copiado de tu Dockerfile existente)
-ENV TZ=America/Asuncion
-
-# 3. Crear directorio de trabajo
+# 2. CONFIGURAR CARPETA DE TRABAJO
 WORKDIR /usr/src/app
 
-# 4. Instalar dependencias de Node.js
+# 3. COPIAR ARCHIVOS DE DEPENDENCIAS
 COPY package*.json ./
-# Instalamos solo dependencias de producción para ahorrar espacio
-RUN npm install --omit=dev
 
-# 5. Copiar el resto del código fuente
+# 4. INSTALAR DEPENDENCIAS DE NODE
+RUN npm install --production
+
+# 5. COPIAR EL RESTO DEL CÓDIGO
 COPY . .
 
-# 6. Crear un archivo de log para la estabilidad
-RUN touch ffmpeg_log.txt
-
-# 7. Exponer el puerto para health checks
+# 6. EXPONER PUERTO Y COMANDO DE INICIO
 EXPOSE 8080
-ENV PORT=8080
-
-# 8. Comando de inicio: Iniciar Node.js
-CMD ["node", "server.js"]
+CMD [ "npm", "start" ]
