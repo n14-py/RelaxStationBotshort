@@ -1,7 +1,7 @@
 {
-  "name": "relax-station-bot-ultimate",
-  "version": "3.1.0",
-  "description": "Bot autónomo con Director IA, Streaming 1FPS y FFmpeg",
+  "name": "relax-station-bot-pro",
+  "version": "5.0.0",
+  "description": "Sistema de Streaming Autónomo con Persistencia en MongoDB y BunnyCDN",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -11,15 +11,16 @@
     "axios": "^1.6.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "fluent-ffmpeg": "^2.1.2",
     "googleapis": "^128.0.0",
     "google-auth-library": "^9.2.0",
-    "fluent-ffmpeg": "^2.1.2",
     "moment": "^2.29.4",
+    "mongoose": "^8.0.0",
     "sharp": "^0.33.2"
   },
   "engines": {
     "node": ">=18.0.0"
   },
-  "author": "RelaxStation AI",
+  "author": "RelaxStation Tech",
   "license": "ISC"
 }
