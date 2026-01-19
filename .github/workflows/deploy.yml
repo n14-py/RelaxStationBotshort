@@ -1,0 +1,55 @@
+name: Despliegue Continuo de YouTube Transmisor
+
+on:
+  # Dispara el workflow cuando se haga un push a la rama 'main'
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Código Fuente
+        uses: actions/checkout@v3
+
+      # --- Despliegue Automático via SSH ---
+      - name: Construir y Reiniciar Docker en Lightsail
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          # Estas variables se obtienen de los Secrets de GitHub
+          host: ${{ secrets.SSH_HOST }}              
+          username: ${{ secrets.SSH_USERNAME }}      
+          key: ${{ secrets.SSH_PRIVATE_KEY }}        
+          script: |
+            TARGET_DIR=~/youtube-transmisor
+            
+            # 1. Navegar al directorio de ejecución (asume que fue creado inicialmente)
+            cd $TARGET_DIR
+            echo "Actualizando codigo de ${{ github.repository }}..."
+            
+            # 2. Descargar la última versión del código
+            # (El "origin main" usa la URL de tu repositorio, ¡automático!)
+            git pull origin main
+            
+            # 3. Reconstruir la imagen de Docker
+            echo "Reconstruyendo imagen Docker..."
+            # El punto (.) le dice a Docker que use el Dockerfile en la carpeta actual.
+            docker build -t youtube-bot:latest .
+
+            # 4. Detener y remover el contenedor anterior
+            echo "Deteniendo y eliminando contenedor anterior..."
+            docker stop youtube-streamer || true
+            docker rm youtube-streamer || true
+
+            # 5. Ejecutar el nuevo contenedor
+            # --env-file $TARGET_DIR/.env asume que creaste el .env manualmente (CRÍTICO)
+            echo "Ejecutando nuevo contenedor con .env existente..."
+            docker run -d \
+              --name youtube-streamer \
+              --restart=always \
+              -p 8080:8080 \
+              --env-file $TARGET_DIR/.env \
+              youtube-bot:latest
+            
+            echo "🚀 Despliegue completado y contenedor reiniciado."
