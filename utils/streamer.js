@@ -5,120 +5,82 @@ const fs = require('fs');
 let ffmpegProcess = null;
 
 /**
- * Inicia el stream con contador regresivo y superposición de texto dinámica.
- * @param {string} imagePath - Ruta de la imagen de fondo.
- * @param {string} audioUrl - URL de la radio.
- * @param {string} rtmpUrl - Clave de transmisión.
- * @param {number} durationHours - Duración en horas (ej: 12).
+ * Inicia el stream y DEVUELVE UNA PROMESA QUE SOLO SE CUMPLE CUANDO EL STREAM TERMINA.
+ * Esto bloquea el código para que no se creen bucles infinitos.
  */
 function startStream(imagePath, audioUrl, rtmpUrl, durationHours = 12) {
     return new Promise((resolve, reject) => {
+        // 1. Limpieza de procesos anteriores (por seguridad)
         if (ffmpegProcess) {
-            console.log("⚠️ Reiniciando proceso FFmpeg...");
-            stopStream();
+            try { ffmpegProcess.kill(); } catch(e) {}
         }
 
-        console.log(`🚀 [FFmpeg] Iniciando motor 1 FPS con Contador de ${durationHours}h...`);
+        console.log(`🚀 [FFmpeg] Iniciando motor. Duración programada: ${durationHours} horas.`);
 
         // --- PREPARACIÓN DE RECURSOS ---
         const durationSeconds = durationHours * 3600;
-        
-        // Buscamos si el usuario puso una fuente bonita, si no, usamos la default
         const fontPath = path.join(__dirname, '../assets/font.ttf');
         let fontOption = "";
+        
+        // Ajuste de fuente para Windows/Linux
         if (fs.existsSync(fontPath)) {
-            // FFmpeg necesita rutas con barras normales, no invertidas de Windows
             const cleanFontPath = fontPath.replace(/\\/g, '/').replace(':', '\\:'); 
             fontOption = `fontfile='${cleanFontPath}':`;
-            console.log("   ✅ Usando fuente personalizada: font.ttf");
-        } else {
-            console.log("   ℹ️ No se detectó 'assets/font.ttf', usando fuente del sistema.");
         }
 
-        // --- FILTRO MAGICO DEL CONTADOR ---
-        // Explicación: Calcula (TiempoTotal - TiempoTranscurrido) y lo formatea como HH:MM:SS
+        // --- FILTRO DEL CONTADOR ---
         const countdownExpression = 
             `%{eif\\:(${durationSeconds}-t)/3600\\:d\\:2}\\:%{eif\\:(mod(${durationSeconds}-t,3600))/60\\:d\\:2}\\:%{eif\\:mod(${durationSeconds}-t,60)\\:d\\:2}`;
 
-        const drawTextFilter = `drawtext=${fontOption}text='FIN DE TRANSMISION\\: ${countdownExpression}':fontcolor=white:fontsize=35:x=w-tw-30:y=30:box=1:boxcolor=black@0.6:boxborderw=10`;
+        const drawTextFilter = `drawtext=${fontOption}text='TIEMPO RESTANTE\\: ${countdownExpression}':fontcolor=white:fontsize=35:x=w-tw-30:y=30:box=1:boxcolor=black@0.6:boxborderw=10`;
 
-        // --- ARGUMENTOS FFMPEG ---
         const args = [
             '-hide_banner', '-loglevel', 'error',
-            '-thread_queue_size', '2048', // Buffer gigante para evitar cortes de audio
-
-            // INPUT 0: IMAGEN (Bucle)
-            '-loop', '1',
-            '-framerate', '1', 
-            '-i', imagePath,
-
-            // INPUT 1: AUDIO (Radio Online)
+            '-thread_queue_size', '2048',
+            '-loop', '1', '-framerate', '1', '-i', imagePath,
             '-i', audioUrl,
-
-            // MAPEO
-            '-map', '0:v:0',
-            '-map', '1:a:0',
-
-            // FILTROS DE VIDEO (Escalado + Contador)
+            '-map', '0:v:0', '-map', '1:a:0',
             '-vf', `scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,${drawTextFilter},fps=1`,
-
-            // CODECS
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast', // Máxima velocidad
-            '-tune', 'stillimage',  // Optimización para imagen casi estática
-            '-r', '1',              // 1 Frame Por Segundo REAL
-            '-g', '2',              // Keyframe cada 2 segundos
-            '-pix_fmt', 'yuv420p',
-            
-            // AUDIO
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-ar', '44100',
-
-            // SALIDA
-            '-f', 'flv',
-            rtmpUrl
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'stillimage',
+            '-r', '1', '-g', '2', '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
+            '-t', `${durationSeconds}`, // <--- ESTO OBLIGA A FFMPEG A CERRARSE A LAS 12H EXACTAS
+            '-f', 'flv', rtmpUrl
         ];
 
+        // 2. Arrancar el proceso
         ffmpegProcess = spawn('ffmpeg', args);
 
-        // --- LOGS EN TIEMPO REAL ---
+        // 3. Monitoreo Básico
         ffmpegProcess.stderr.on('data', (data) => {
-            const message = data.toString();
-            // Solo mostramos errores graves, ignoramos info de frames
-            if (!message.includes('frame=') && !message.includes('fps=') && !message.includes('size=')) {
-                console.error(`🔴 [FFmpeg]: ${message.trim()}`);
+            const msg = data.toString();
+            if (!msg.includes('frame=') && !msg.includes('fps=') && !msg.includes('size=')) {
+                // Solo logueamos errores reales para no ensuciar la consola
+                if (msg.toLowerCase().includes('error') || msg.toLowerCase().includes('fail')) {
+                    console.error(`🔴 [FFmpeg Error]: ${msg.trim()}`);
+                }
             }
         });
 
+        // 4. EL MOMENTO CLAVE: Solo resolvemos la promesa cuando se cierra
         ffmpegProcess.on('close', (code) => {
-            console.log(`🏁 [FFmpeg] Proceso terminó (Código: ${code})`);
+            console.log(`🏁 [FFmpeg] El stream ha terminado (Código: ${code}).`);
             ffmpegProcess = null;
+            resolve(); // <--- AQUÍ ES DONDE LE DECIMOS AL INDEX.JS "YA PUEDES SEGUIR"
         });
 
-        // Verificación inicial de estabilidad (3 segundos)
-        setTimeout(() => {
-            if (ffmpegProcess) {
-                console.log("✅ [FFmpeg] Stream ESTABLE enviando video.");
-                resolve();
-            } else {
-                reject(new Error("FFmpeg murió al arrancar. Revisa los logs."));
-            }
-        }, 3000);
+        ffmpegProcess.on('error', (err) => {
+            console.error("❌ [FFmpeg] Error crítico al iniciar:", err);
+            reject(err);
+        });
     });
 }
 
 function stopStream() {
     if (ffmpegProcess) {
-        console.log("🛑 Deteniendo transmisión...");
-        try {
-            ffmpegProcess.stdin.write('q');
-        } catch(e) {}
+        console.log("🛑 Forzando detención del stream...");
         ffmpegProcess.kill('SIGINT');
-        ffmpegProcess = null;
     }
 }
 
 module.exports = { startStream, stopStream };
-
-//si
