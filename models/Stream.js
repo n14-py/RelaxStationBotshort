@@ -1,58 +1,32 @@
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
+const mongoose = require('mongoose');
 
-/**
- * Sube una imagen local al Storage de Bunny.net
- * @param {string} localFilePath - Ruta absoluta del archivo en el disco (ej: /app/temp.jpg)
- * @param {string} destinationName - Nombre final del archivo (ej: stream_12345.jpg)
- * @returns {Promise<{url: string, path: string}>} - La URL pública y la ruta interna
- */
-async function uploadToBunny(localFilePath, destinationName) {
-    // 1. OBTENER CONFIGURACIÓN
-    const storageZone = process.env.BUNNY_STORAGE_ZONE;
-    const apiKey = process.env.BUNNY_API_KEY;
-    const region = process.env.BUNNY_REGION || 'storage.bunnycdn.com'; // Por defecto
-    const pullZone = process.env.BUNNY_PULL_ZONE;
+// Este esquema define cómo guardamos la info de cada directo en la base de datos
+const StreamSchema = new mongoose.Schema({
+    // Datos Creativos
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    concept_reasoning: { type: String },
+    image_prompt: { type: String },
+    
+    // Datos de Archivos (BunnyCDN)
+    bunny_image_url: { type: String, required: true }, // URL pública
+    bunny_file_path: { type: String, required: true }, // Ruta interna
 
-    if (!storageZone || !apiKey || !pullZone) {
-        throw new Error("❌ Faltan credenciales de Bunny.net en el archivo .env");
-    }
+    // Datos de YouTube
+    youtube_broadcast_id: { type: String },
+    youtube_stream_id: { type: String },
+    youtube_rtmp_url: { type: String },
 
-    console.log(`☁️ [Bunny] Iniciando subida: ${destinationName}...`);
+    // Estado del Proceso
+    status: { 
+        type: String, 
+        enum: ['PREPARING', 'READY', 'LIVE', 'FINISHED', 'ERROR'], 
+        default: 'PREPARING' 
+    },
 
-    try {
-        // 2. LEER ARCHIVO DEL DISCO
-        const fileStream = fs.createReadStream(localFilePath);
+    // Tiempos
+    scheduledDurationHours: { type: Number, default: 12 },
+    createdAt: { type: Date, default: Date.now }
+});
 
-        // 3. CONSTRUIR URL DE SUBIDA (API STORAGE)
-        // Formato: https://{region}/{storageZoneName}/{path}/{fileName}
-        const uploadUrl = `https://${region}/${storageZone}/covers/${destinationName}`;
-
-        // 4. EJECUTAR SUBIDA (PUT)
-        await axios.put(uploadUrl, fileStream, {
-            headers: {
-                'AccessKey': apiKey,
-                'Content-Type': 'image/jpeg' // Asumimos JPG para ahorrar espacio
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        });
-
-        // 5. CONSTRUIR URL PÚBLICA (CDN)
-        const publicUrl = `${pullZone}/covers/${destinationName}`;
-        
-        console.log(`✅ [Bunny] Subida exitosa: ${publicUrl}`);
-
-        return {
-            url: publicUrl,
-            path: `covers/${destinationName}`
-        };
-
-    } catch (error) {
-        console.error("❌ [Bunny Error]:", error.response ? error.response.data : error.message);
-        throw new Error("Fallo al subir imagen a Bunny.net");
-    }
-}
-
-module.exports = { uploadToBunny };
+module.exports = mongoose.model('Stream', StreamSchema);

@@ -1,25 +1,21 @@
-# Usamos una imagen ligera de Node 18
 FROM node:18-slim
 
-# 1. INSTALAR FFMPEG Y DEPENDENCIAS DE SISTEMA
-# Esto es vital. Sin esto, el bot fallará al intentar transmitir.
+# 1. Instalar FFmpeg y herramientas de compilación
 RUN apt-get update && \
     apt-get install -y ffmpeg python3 make g++ && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 2. CONFIGURAR CARPETA DE TRABAJO
+# 2. Configurar directorio
 WORKDIR /usr/src/app
 
-# 3. COPIAR ARCHIVOS DE DEPENDENCIAS
+# 3. Copiar dependencias e instalar
 COPY package*.json ./
-
-# 4. INSTALAR DEPENDENCIAS DE NODE
 RUN npm install --production
 
-# 5. COPIAR EL RESTO DEL CÓDIGO
+# 4. Copiar el resto del código
 COPY . .
 
-# 6. EXPONER PUERTO Y COMANDO DE INICIO
+# 5. Exponer puerto
 EXPOSE 8080
 CMD [ "npm", "start" ]

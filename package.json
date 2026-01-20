@@ -1,7 +1,7 @@
 {
-  "name": "relax-station-bot-pro",
+  "name": "relax-station-bot-v5",
   "version": "5.0.0",
-  "description": "Sistema de Streaming Autónomo con Persistencia en MongoDB y BunnyCDN",
+  "description": "Bot Premium con MongoDB, BunnyCDN y Streaming Autónomo",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
