@@ -10,19 +10,23 @@ const TOKEN_PATH = path.join(__dirname, '../auth/token.json');
  * Autentica y devuelve el cliente de YouTube
  */
 async function getYoutubeClient() {
+    // Verificaciones de seguridad
     if (!fs.existsSync(CREDENTIALS_PATH)) {
         throw new Error(`❌ No se encuentra el archivo de credenciales en: ${CREDENTIALS_PATH}`);
     }
+    if (!fs.existsSync(TOKEN_PATH)) {
+        throw new Error("❌ NO HAY TOKEN. Ejecuta 'npm run auth' primero.");
+    }
 
+    // Cargar credenciales
     const content = fs.readFileSync(CREDENTIALS_PATH);
     const credentials = JSON.parse(content);
-    // Soporte para credenciales 'installed' o 'web'
     const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web;
     
+    // Configurar cliente OAuth2
     const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
     
-    if (!fs.existsSync(TOKEN_PATH)) throw new Error("❌ NO HAY TOKEN. Ejecuta 'npm run auth' primero.");
-    
+    // Cargar Token
     const token = fs.readFileSync(TOKEN_PATH);
     oAuth2Client.setCredentials(JSON.parse(token));
     
@@ -30,7 +34,7 @@ async function getYoutubeClient() {
 }
 
 /**
- * Crea la emisión en YouTube y actualiza el registro en MongoDB
+ * Crea la emisión en YouTube, genera la clave RTMP y guarda todo en MongoDB
  * @param {Object} streamDoc - El documento del stream de MongoDB
  */
 async function createYoutubeBroadcast(streamDoc) {
@@ -49,12 +53,12 @@ async function createYoutubeBroadcast(streamDoc) {
                     scheduledStartTime: new Date().toISOString()
                 },
                 status: {
-                    privacyStatus: 'public', // Cambiar a 'unlisted' si quieres probar
+                    privacyStatus: 'public', // 'public', 'unlisted' o 'private'
                     selfDeclaredMadeForKids: false
                 },
                 contentDetails: {
-                    enableAutoStart: true,
-                    enableAutoStop: true,
+                    enableAutoStart: true, // Empieza solo al recibir video
+                    enableAutoStop: true,  // Termina solo al cortar video
                     latencyPreference: 'normal'
                 }
             }
@@ -63,11 +67,11 @@ async function createYoutubeBroadcast(streamDoc) {
         const broadcastId = broadcastRes.data.id;
         console.log(`   ✅ Evento creado ID: ${broadcastId}`);
 
-        // 2. Crear Stream (La "Llave" técnica)
+        // 2. Crear Stream (La "Llave" de transmisión)
         const streamRes = await youtube.liveStreams.insert({
             part: 'snippet,cdn',
             requestBody: {
-                snippet: { title: `Key para ${streamDoc.title.substring(0, 20)}...` },
+                snippet: { title: `Key Auto ${Date.now()}` },
                 cdn: {
                     ingestionType: 'rtmp',
                     resolution: '1080p',
@@ -78,18 +82,20 @@ async function createYoutubeBroadcast(streamDoc) {
 
         const streamId = streamRes.data.id;
         const ingestionInfo = streamRes.data.cdn.ingestionInfo;
+        
+        // Construimos la URL RTMP completa
         const rtmpUrl = `${ingestionInfo.ingestionAddress}/${ingestionInfo.streamName}`;
         
         console.log(`   ✅ Llave RTMP generada.`);
 
-        // 3. Unir Evento con Llave
+        // 3. Unir (Bind) el Evento con la Llave
         await youtube.liveBroadcasts.bind({
             part: 'id,contentDetails',
             id: broadcastId,
             streamId: streamId
         });
 
-        // 4. ACTUALIZAR BASE DE DATOS
+        // 4. ACTUALIZAR BASE DE DATOS (Persistencia)
         streamDoc.youtube_broadcast_id = broadcastId;
         streamDoc.youtube_stream_id = streamId;
         streamDoc.youtube_rtmp_url = rtmpUrl;
@@ -101,10 +107,12 @@ async function createYoutubeBroadcast(streamDoc) {
 
     } catch (error) {
         console.error("❌ Error API YouTube:", error.message);
-        if(error.response) console.error("Detalle API:", JSON.stringify(error.response.data, null, 2));
+        if (error.response) {
+            console.error("Detalle API:", JSON.stringify(error.response.data, null, 2));
+        }
         throw error;
     }
 }
 
-// ESTA LÍNEA ES LA MÁS IMPORTANTE, SIN ELLA EL INDEX.JS NO VE LA FUNCIÓN
+// ESTA LÍNEA FINAL ES LA QUE ARREGLA EL ERROR "NOT A FUNCTION"
 module.exports = { createYoutubeBroadcast };
