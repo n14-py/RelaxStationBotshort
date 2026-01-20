@@ -1,124 +1,138 @@
 require('dotenv').config();
 const express = require('express');
+const mongoose = require('mongoose');
 const moment = require('moment');
-const fs = require('fs');
-const path = require('path');
 
-// Módulos
-const { generateCreativeContent, generateBrandedImage } = require('./utils/aiGenerator');
-const { createBroadcast } = require('./utils/youtubeManager');
+// --- IMPORTAMOS NUESTROS MÓDULOS NUEVOS ---
+const { prepareNextStream } = require('./utils/aiGenerator');
+const { createYoutubeBroadcast } = require('./utils/youtubeManager');
 const { startStream, stopStream } = require('./utils/streamer');
+const Stream = require('./models/Stream'); // Para actualizar estado final
 
 const PORT = process.env.PORT || 8080;
 const CYCLE_DURATION_HOURS = 12;
 
-// --- SERVIDOR WEB (Solo para que Render no nos apague) ---
+// --- SERVIDOR WEB (Health Check para Render) ---
 const app = express();
-let currentStatus = "INICIANDO";
+let botState = "INICIANDO";
 
 app.get('/', (req, res) => {
-    res.send(`🤖 Relax Station Bot V3 - Estado: ${currentStatus} - Hora: ${moment().format('HH:mm:ss')}`);
+    res.send(`
+        <h1>🤖 Relax Station Bot V5 (Cloud Edition)</h1>
+        <p>Estado: <strong>${botState}</strong></p>
+        <p>Hora Servidor: ${moment().format('HH:mm:ss')}</p>
+    `);
 });
 
-app.listen(PORT, () => {
-    console.log(`🌐 Servidor Web escuchando en puerto ${PORT}`);
-    // Arrancamos el bucle principal UNA SOLA VEZ
-    mainLoop();
-});
+// --- INICIO DEL SISTEMA ---
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => {
+        console.log("✅ Conectado a MongoDB Atlas");
+        
+        app.listen(PORT, () => {
+            console.log(`🌐 Servidor Web listo en puerto ${PORT}`);
+            // Arrancamos el bucle principal
+            mainLoop();
+        });
+    })
+    .catch(err => console.error("❌ Error conectando a MongoDB:", err));
 
 
 /**
- * BUCLE INFINITO LINEAL (ESTILO PYTHON)
- * Hace una cosa, espera, hace la siguiente, espera...
+ * BUCLE PRINCIPAL INFINITO
+ * Sigue la lógica: BD -> YouTube -> Transmisión -> Fin -> Repetir
  */
 async function mainLoop() {
-    console.log("\n🚀 INICIANDO BUCLE PRINCIPAL DEL BOT");
+    console.log("\n🚀 INICIANDO SISTEMA DE STREAMING AUTOMÁTICO");
 
-    while (true) { // Esto nunca se detiene
+    while (true) { // Bucle infinito seguro
+        let currentStreamDoc = null;
+
         try {
             console.log("\n=================================================");
-            console.log(`🎬 NUEVO CICLO - HORA: ${moment().format('HH:mm:ss')}`);
+            console.log(`🎬 NUEVO CICLO - ${moment().format('HH:mm:ss')}`);
             console.log("=================================================");
 
-            // --- PASO 1: CREATIVIDAD (IA) ---
-            currentStatus = "PASO 1: PENSANDO (IA)";
-            console.log("🧠 [1/4] Consultando a DeepSeek...");
+            // ---------------------------------------------------------
+            // PASO 1: PREPARACIÓN (IA + BUNNY + MONGO)
+            // ---------------------------------------------------------
+            botState = "GENERANDO CONTENIDO";
+            console.log("🧠 [1/3] Generando contenido y subiendo a la nube...");
             
-            // Reintentos simples para IA
-            let metadata = null;
+            // Reintentos automáticos si falla la IA
             for (let i = 0; i < 3; i++) {
                 try {
-                    metadata = await generateCreativeContent();
-                    break; // Si funciona, salimos del for
+                    currentStreamDoc = await prepareNextStream();
+                    break; // Éxito, salimos del for
                 } catch (e) {
-                    console.warn(`⚠️ Intento ${i+1} fallido (Texto). Reintentando...`);
-                    await new Promise(r => setTimeout(r, 5000));
+                    console.warn(`⚠️ Intento ${i+1} fallido. Reintentando en 10s...`);
+                    await new Promise(r => setTimeout(r, 10000));
                 }
             }
-            if (!metadata) throw new Error("Fallo total en DeepSeek (Texto)");
-            console.log("   ✅ Título:", metadata.title);
+
+            if (!currentStreamDoc) throw new Error("Fallo total generando contenido IA.");
 
 
-            // --- PASO 2: IMAGEN ---
-            currentStatus = "PASO 2: GENERANDO IMAGEN";
-            console.log("🎨 [2/4] Generando Portada...");
+            // ---------------------------------------------------------
+            // PASO 2: CONFIGURACIÓN YOUTUBE
+            // ---------------------------------------------------------
+            botState = "CONFIGURANDO YOUTUBE";
+            console.log("📡 [2/3] Creando evento en YouTube...");
             
-            let imagePath = null;
-            for (let i = 0; i < 3; i++) {
-                try {
-                    imagePath = await generateBrandedImage(metadata.image_prompt);
-                    if(imagePath) break;
-                } catch (e) {
-                    console.warn(`⚠️ Intento ${i+1} fallido (Imagen). Reintentando...`);
-                    await new Promise(r => setTimeout(r, 5000));
-                }
-            }
-            // Fallback de imagen
-            if (!imagePath) {
-                console.log("⚠️ Usando imagen por defecto.");
-                imagePath = path.join(__dirname, 'default.jpg');
-            }
-            console.log("   ✅ Imagen lista.");
+            // Usamos el documento de la BD que ya tiene todo listo
+            currentStreamDoc = await createYoutubeBroadcast(currentStreamDoc);
 
 
-            // --- PASO 3: YOUTUBE ---
-            currentStatus = "PASO 3: CONFIGURANDO YOUTUBE";
-            console.log("📡 [3/4] Creando evento en YouTube...");
-            const broadcast = await createBroadcast(metadata.title, metadata.description);
-            console.log("   ✅ Evento Creado. RTMP:", broadcast.rtmpUrl);
-
-
-            // --- PASO 4: TRANSMISIÓN (BLOQUEANTE) ---
-            currentStatus = "PASO 4: EN VIVO 🔴";
-            console.log(`🚀 [4/4] Iniciando Transmisión de ${CYCLE_DURATION_HOURS} Horas...`);
-            console.log("   (El bot se quedará esperando aquí hasta que termine)");
+            // ---------------------------------------------------------
+            // PASO 3: TRANSMISIÓN (DESDE LA NUBE)
+            // ---------------------------------------------------------
+            botState = "EN VIVO 🔴";
+            console.log(`🚀 [3/3] Iniciando Transmisión de ${CYCLE_DURATION_HOURS} Horas...`);
+            
+            // Actualizamos estado en BD
+            currentStreamDoc.status = 'LIVE';
+            currentStreamDoc.startedAt = new Date();
+            await currentStreamDoc.save();
 
             const audioUrl = process.env.AUDIO_SOURCE_URL;
+            
+            // AQUI LA MAGIA: Le pasamos la URL de Bunny (currentStreamDoc.bunny_image_url)
+            // El código se quedará "congelado" aquí 12 horas hasta que FFmpeg termine.
+            await startStream(
+                currentStreamDoc.bunny_image_url, 
+                audioUrl, 
+                currentStreamDoc.youtube_rtmp_url, 
+                CYCLE_DURATION_HOURS
+            );
 
-            // AQUI ESTA LA CLAVE: El 'await' no terminará hasta dentro de 12 horas
-            await startStream(imagePath, audioUrl, broadcast.rtmpUrl, CYCLE_DURATION_HOURS);
+            console.log("🏁 Transmisión finalizada correctamente.");
+            
+            // Marcar como finalizado en BD
+            currentStreamDoc.status = 'FINISHED';
+            currentStreamDoc.finishedAt = new Date();
+            await currentStreamDoc.save();
 
-            console.log("🏁 Fin de la transmisión (FFmpeg se cerró).");
 
-
-            // --- FIN DEL CICLO ---
-            currentStatus = "LIMPIANDO";
-            console.log("🧹 Limpiando archivos temporales...");
-            if (imagePath && imagePath.includes('temp_cover')) {
-                try { fs.unlinkSync(imagePath); } catch (e) {}
-            }
-
-            console.log("💤 Descansando 30 segundos antes del siguiente ciclo...");
-            await new Promise(r => setTimeout(r, 30000));
+            // ---------------------------------------------------------
+            // DESCANSO
+            // ---------------------------------------------------------
+            botState = "DESCANSANDO";
+            console.log("💤 Esperando 1 minuto antes del siguiente ciclo...");
+            await new Promise(r => setTimeout(r, 60000));
 
         } catch (error) {
-            console.error("\n❌ ERROR GRAVE EN EL BUCLE:");
-            console.error(error);
-            currentStatus = "ERROR - REINTENTANDO";
+            console.error("\n❌ ERROR CRÍTICO EN EL BUCLE:", error);
+            botState = "ERROR - REINTENTANDO";
             
-            // Si algo falla, esperamos 1 minuto y el 'while(true)' volverá a empezar
-            console.log("🔄 Reintentando ciclo en 60 segundos...");
-            await new Promise(r => setTimeout(r, 60000));
+            // Si teníamos un stream activo y falló, marcamos error en BD
+            if (currentStreamDoc) {
+                currentStreamDoc.status = 'ERROR';
+                await currentStreamDoc.save().catch(() => {});
+            }
+
+            console.log("🔄 Reiniciando sistema en 2 minutos...");
+            stopStream(); // Asegurar que FFmpeg muera
+            await new Promise(r => setTimeout(r, 120000));
         }
     }
 }

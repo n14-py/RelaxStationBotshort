@@ -1,85 +1,89 @@
 const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
 
 let ffmpegProcess = null;
 
 /**
- * Inicia el stream y DEVUELVE UNA PROMESA QUE SOLO SE CUMPLE CUANDO EL STREAM TERMINA.
- * Esto bloquea el código para que no se creen bucles infinitos.
+ * Inicia la transmisión leyendo la imagen desde la URL de BunnyCDN
+ * @param {string} imageUrl - URL pública de la imagen (ej: https://tu-zona.b-cdn.net/...)
+ * @param {string} audioUrl - URL de tu radio
+ * @param {string} rtmpUrl - Clave de YouTube
+ * @param {number} durationHours - Duración del evento
  */
-function startStream(imagePath, audioUrl, rtmpUrl, durationHours = 12) {
+function startStream(imageUrl, audioUrl, rtmpUrl, durationHours = 12) {
     return new Promise((resolve, reject) => {
-        // 1. Limpieza de procesos anteriores (por seguridad)
+        // Limpieza de seguridad
         if (ffmpegProcess) {
             try { ffmpegProcess.kill(); } catch(e) {}
         }
 
-        console.log(`🚀 [FFmpeg] Iniciando motor. Duración programada: ${durationHours} horas.`);
-
-        // --- PREPARACIÓN DE RECURSOS ---
         const durationSeconds = durationHours * 3600;
-        const fontPath = path.join(__dirname, '../assets/font.ttf');
-        let fontOption = "";
-        
-        // Ajuste de fuente para Windows/Linux
-        if (fs.existsSync(fontPath)) {
-            const cleanFontPath = fontPath.replace(/\\/g, '/').replace(':', '\\:'); 
-            fontOption = `fontfile='${cleanFontPath}':`;
-        }
-
-        // --- FILTRO DEL CONTADOR ---
-        const countdownExpression = 
-            `%{eif\\:(${durationSeconds}-t)/3600\\:d\\:2}\\:%{eif\\:(mod(${durationSeconds}-t,3600))/60\\:d\\:2}\\:%{eif\\:mod(${durationSeconds}-t,60)\\:d\\:2}`;
-
-        const drawTextFilter = `drawtext=${fontOption}text='TIEMPO RESTANTE\\: ${countdownExpression}':fontcolor=white:fontsize=35:x=w-tw-30:y=30:box=1:boxcolor=black@0.6:boxborderw=10`;
+        console.log(`🚀 [FFmpeg] Iniciando stream desde la nube...`);
+        console.log(`   🖼️ Imagen: ${imageUrl}`);
 
         const args = [
             '-hide_banner', '-loglevel', 'error',
-            '-thread_queue_size', '2048',
-            '-loop', '1', '-framerate', '1', '-i', imagePath,
+            '-thread_queue_size', '128', // Optimizado para poca RAM
+            
+            // ENTRADA 1: IMAGEN (Desde URL HTTPS)
+            '-loop', '1', 
+            '-framerate', '1', 
+            '-i', imageUrl, // <--- AQUÍ LEEMOS DIRECTO DE BUNNY
+
+            // ENTRADA 2: AUDIO (Radio Online)
             '-i', audioUrl,
+
+            // MAPEO
             '-map', '0:v:0', '-map', '1:a:0',
-            '-vf', `scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,${drawTextFilter},fps=1`,
+
+            // FILTROS (Texto de cuenta regresiva)
+            '-vf', `scale=1280:720,setsar=1,drawtext=text='FIN\\: %{eif\\:(${durationSeconds}-t)/3600\\:d\\:2}\\:%{eif\\:(mod(${durationSeconds}-t,3600))/60\\:d\\:2}\\:%{eif\\:mod(${durationSeconds}-t,60)\\:d\\:2}':fontcolor=white:fontsize=30:x=w-tw-20:y=20:box=1:boxcolor=black@0.5:boxborderw=5,fps=1`,
+
+            // CODECS
             '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'stillimage',
             '-r', '1', '-g', '2', '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
-            '-t', `${durationSeconds}`, // <--- ESTO OBLIGA A FFMPEG A CERRARSE A LAS 12H EXACTAS
+            '-c:a', 'aac', '-b:a', '96k', '-ar', '44100',
+            
+            // DURACIÓN EXACTA
+            '-t', `${durationSeconds}`,
+            
+            // SALIDA
             '-f', 'flv', rtmpUrl
         ];
 
-        // 2. Arrancar el proceso
         ffmpegProcess = spawn('ffmpeg', args);
 
-        // 3. Monitoreo Básico
+        // Monitoreo
         ffmpegProcess.stderr.on('data', (data) => {
             const msg = data.toString();
-            if (!msg.includes('frame=') && !msg.includes('fps=') && !msg.includes('size=')) {
-                // Solo logueamos errores reales para no ensuciar la consola
-                if (msg.toLowerCase().includes('error') || msg.toLowerCase().includes('fail')) {
-                    console.error(`🔴 [FFmpeg Error]: ${msg.trim()}`);
-                }
+            // Ignorar ruido, mostrar solo errores graves
+            if (msg.includes('Error') || msg.includes('fail') || msg.includes('Invalid')) {
+                console.error(`🔴 [FFmpeg Warning]: ${msg.trim()}`);
             }
         });
 
-        // 4. EL MOMENTO CLAVE: Solo resolvemos la promesa cuando se cierra
         ffmpegProcess.on('close', (code) => {
-            console.log(`🏁 [FFmpeg] El stream ha terminado (Código: ${code}).`);
+            console.log(`🏁 [FFmpeg] Transmisión finalizada (Código: ${code}).`);
             ffmpegProcess = null;
-            resolve(); // <--- AQUÍ ES DONDE LE DECIMOS AL INDEX.JS "YA PUEDES SEGUIR"
+            resolve();
         });
 
         ffmpegProcess.on('error', (err) => {
-            console.error("❌ [FFmpeg] Error crítico al iniciar:", err);
+            console.error("❌ [FFmpeg Error]:", err);
             reject(err);
         });
+
+        // Keep-Alive para Render (log cada minuto para que no piense que se colgó)
+        const keepAlive = setInterval(() => {
+            if (ffmpegProcess) console.log(`   📡 Transmitiendo... (Quedan ${(durationSeconds/3600).toFixed(1)}h)`);
+            else clearInterval(keepAlive);
+        }, 60000); 
     });
 }
 
 function stopStream() {
     if (ffmpegProcess) {
-        console.log("🛑 Forzando detención del stream...");
         ffmpegProcess.kill('SIGINT');
+        ffmpegProcess = null;
     }
 }
 
