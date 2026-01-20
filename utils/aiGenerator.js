@@ -2,29 +2,27 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
-const Stream = require('/models/Stream'); // Importamos el modelo de la BD
-const { uploadToBunny } = require('./bunnyHandler'); // Importamos el gestor de Bunny
+const Stream = require('../models/Stream'); // El modelo que creamos antes
+const { uploadToBunny } = require('./bunnyHandler'); // El subidor que creamos antes
 
-// --- CONFIGURACIÓN DE RECURSOS ---
-sharp.cache(false); // Desactivar caché para ahorrar RAM
-sharp.concurrency(1); // Usar solo 1 núcleo para editar
+// --- CONFIGURACIÓN DE EFICIENCIA ---
+// Desactivamos la caché de Sharp para que no consuma toda la RAM de Render
+sharp.cache(false);
+sharp.concurrency(1);
 
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 const DEEPINFRA_API_URL = "https://api.deepinfra.com/v1/inference/stabilityai/sdxl-turbo";
 const ASSETS_DIR = path.join(__dirname, '../assets');
 
 /**
- * FUNCIÓN MAESTRA:
- * 1. Genera Texto (IA)
- * 2. Genera Imagen (IA)
- * 3. Edita Imagen (Branding)
- * 4. Sube a Bunny.net
- * 5. Guarda todo en MongoDB
- * * @returns {Promise<Object>} El documento del stream guardado en la BD
+ * FUNCIÓN PRINCIPAL:
+ * Genera todo el contenido, sube la imagen y guarda el registro en la BD.
+ * @returns {Promise<Object>} El documento del stream guardado en MongoDB.
  */
 async function prepareNextStream() {
-    console.log("🧠 [Director IA] Iniciando proceso de creación...");
+    console.log("🧠 [Director IA] Iniciando proceso creativo...");
 
+    // Nombre temporal para el archivo local (lo borraremos al final)
     const tempFileName = `cover_${Date.now()}.jpg`;
     const tempFilePath = path.join(__dirname, `../${tempFileName}`);
 
@@ -33,6 +31,7 @@ async function prepareNextStream() {
         // 1. GENERACIÓN DE TEXTO (DEEPSEEK)
         // ---------------------------------------------------------
         console.log("   > Consultando a DeepSeek...");
+        
         const webLink = process.env.WEBSITE_URL || "https://desderelaxstation.com";
         const spotifyLink = process.env.SPOTIFY_URL || "#";
 
@@ -58,7 +57,7 @@ async function prepareNextStream() {
 
         const content = JSON.parse(textResponse.data.choices[0].message.content);
         
-        // Agregar footer de marketing
+        // Agregar footer de marketing obligatorio
         content.description += `\n\n👇 **LINKS OFICIALES** 👇\n🎧 Spotify: ${spotifyLink}\n🌐 Web: ${webLink}\n\n📻 *Transmitiendo desde Relax Station*`;
 
         console.log(`   💡 Concepto: ${content.concept_reasoning}`);
@@ -67,6 +66,7 @@ async function prepareNextStream() {
         // 2. GENERACIÓN DE IMAGEN (DEEPINFRA)
         // ---------------------------------------------------------
         console.log("   > Generando imagen con DeepInfra...");
+        
         const imgResponse = await axios.post(DEEPINFRA_API_URL, {
             prompt: content.image_prompt,
             num_inference_steps: 4,
@@ -77,7 +77,6 @@ async function prepareNextStream() {
         let imageBase64 = imgResponse.data.images?.[0]?.image_base64 || imgResponse.data.images?.[0];
         if (!imageBase64) throw new Error("DeepInfra no devolvió imagen.");
 
-        // Limpieza del base64
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
         // ---------------------------------------------------------
@@ -85,7 +84,7 @@ async function prepareNextStream() {
         // ---------------------------------------------------------
         console.log("   > Editando imagen (Branding)...");
         
-        // Capa de texto "DESDE RELAX STATION"
+        // Capa de texto "DESDE RELAX STATION" (Barra negra + Texto)
         const svgText = Buffer.from(`
         <svg width="1280" height="720">
             <rect x="0" y="660" width="1280" height="60" fill="black" opacity="0.6" />
@@ -94,14 +93,14 @@ async function prepareNextStream() {
 
         const layers = [{ input: svgText }];
 
-        // Logo Spotify (Opcional)
+        // Logo Spotify (Si existe en la carpeta assets)
         const spotifyPath = path.join(ASSETS_DIR, 'spotify_logo.png');
         if (fs.existsSync(spotifyPath)) {
             const logoBuffer = await sharp(spotifyPath).resize(50, 50).toBuffer();
             layers.push({ input: logoBuffer, top: 665, left: 450 });
         }
 
-        // Procesar y guardar como JPG optimizado
+        // Guardamos como JPG comprimido (calidad 85) para ahorrar espacio
         await sharp(rawBuffer)
             .composite(layers)
             .jpeg({ quality: 85, mozjpeg: true })
@@ -117,29 +116,30 @@ async function prepareNextStream() {
         // 5. GUARDAR EN MONGODB
         // ---------------------------------------------------------
         console.log("   > Guardando registro en Base de Datos...");
+        
         const newStream = new Stream({
             title: content.title,
             description: content.description,
             concept_reasoning: content.concept_reasoning,
             image_prompt: content.image_prompt,
-            bunny_image_url: bunnyData.url,
-            bunny_file_path: bunnyData.path,
-            status: 'READY' // Importante: Lo marcamos como LISTO para ser transmitido
+            bunny_image_url: bunnyData.url,     // La URL segura en la nube
+            bunny_file_path: bunnyData.path,    // La ruta interna
+            status: 'READY'                     // ¡LISTO PARA TRANSMITIR!
         });
 
         await newStream.save();
         
-        console.log("✅ ¡PREPARACIÓN COMPLETADA CON ÉXITO!");
-        console.log(`   ID del Stream: ${newStream._id}`);
+        console.log("✅ ¡CONTENIDO PREPARADO Y GUARDADO!");
+        console.log(`   ID: ${newStream._id}`);
 
-        // Limpiar archivo local para no llenar el disco
+        // Limpieza: Borramos la imagen local porque ya está segura en Bunny
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
 
         return newStream;
 
     } catch (error) {
-        console.error("❌ Error en la preparación del contenido:", error.message);
-        // Limpiar archivo local si quedó a medias
+        console.error("❌ Error en Generación IA:", error.message);
+        // Limpiar basura si falló
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
         throw error;
     }

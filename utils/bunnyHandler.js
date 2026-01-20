@@ -3,45 +3,53 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Sube un archivo local a Bunny.net Storage
- * @param {string} localPath - Ruta del archivo en el servidor (temp_cover.jpg)
- * @param {string} fileName - Nombre con el que se guardará (ej: stream_2024.jpg)
- * @returns {Promise<{url: string, path: string}>}
+ * Sube una imagen local al Storage de Bunny.net
+ * @param {string} localFilePath - Ruta del archivo en el servidor
+ * @param {string} destinationName - Nombre final del archivo (ej: stream_123.jpg)
+ * @returns {Promise<{url: string, path: string}>} - URL pública y ruta interna
  */
-async function uploadToBunny(localPath, fileName) {
-    const storageZone = process.env.BUNNY_STORAGE_ZONE_NAME;
-    const apiKey = process.env.BUNNY_STORAGE_API_KEY;
-    const region = process.env.BUNNY_STORAGE_REGION || 'storage.bunnycdn.com';
-    const pullZoneUrl = process.env.BUNNY_PULL_ZONE_URL;
+async function uploadToBunny(localFilePath, destinationName) {
+    // 1. CARGAR CREDENCIALES
+    const storageZone = process.env.BUNNY_STORAGE_ZONE;
+    const apiKey = process.env.BUNNY_API_KEY;
+    const region = process.env.BUNNY_REGION || 'storage.bunnycdn.com';
+    const pullZone = process.env.BUNNY_PULL_ZONE;
 
-    console.log(`☁️ [Bunny] Subiendo imagen: ${fileName}...`);
+    // Validación de seguridad
+    if (!storageZone || !apiKey || !pullZone) {
+        throw new Error("❌ FALTAN DATOS DE BUNNY.NET EN EL ARCHIVO .ENV");
+    }
+
+    console.log(`☁️ [Bunny] Subiendo: ${destinationName}...`);
 
     try {
-        const fileStream = fs.createReadStream(localPath);
-        
-        // La URL de la API de Bunny sigue este formato: https://{region}/{storageZone}/{path}/{fileName}
-        const uploadUrl = `https://${region}/${storageZone}/relax-station-covers/${fileName}`;
+        // 2. LEER EL ARCHIVO
+        const fileStream = fs.createReadStream(localFilePath);
 
+        // 3. SUBIR A LA API DE STORAGE
+        const uploadUrl = `https://${region}/${storageZone}/covers/${destinationName}`;
+        
         await axios.put(uploadUrl, fileStream, {
             headers: {
                 'AccessKey': apiKey,
-                'Content-Type': 'image/jpeg'
+                'Content-Type': 'image/jpeg' 
             },
-            maxBodyLength: Infinity,
-            maxContentLength: Infinity
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
         });
 
-        const finalUrl = `${pullZoneUrl}/relax-station-covers/${fileName}`;
-        console.log(`✅ [Bunny] Imagen disponible en: ${finalUrl}`);
+        // 4. RETORNAR LA URL PÚBLICA (CDN)
+        const publicUrl = `${pullZone}/covers/${destinationName}`;
+        console.log(`✅ [Bunny] Subida exitosa: ${publicUrl}`);
 
         return {
-            url: finalUrl,
-            path: `relax-station-covers/${fileName}`
+            url: publicUrl,
+            path: `covers/${destinationName}`
         };
 
     } catch (error) {
-        console.error("❌ [Bunny] Error al subir archivo:", error.response?.data || error.message);
-        throw new Error("Fallo en la subida a Bunny.net");
+        console.error("❌ [Bunny Error]:", error.response ? error.response.data : error.message);
+        throw new Error("Fallo al subir imagen a BunnyCDN");
     }
 }
 
