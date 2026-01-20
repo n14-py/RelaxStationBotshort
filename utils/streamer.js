@@ -5,66 +5,67 @@ const fs = require('fs');
 let ffmpegProcess = null;
 
 /**
- * STREAM LIGERO Y ESTABLE
- * Usa 'wallclock' para sincronizar el audio de radio en vivo sin cortes ni aceleraciones.
- * @param {string} imageUrl - URL de la imagen (BunnyCDN)
- * @param {string} audioUrl - URL de la radio
- * @param {string} rtmpUrl - URL de YouTube
+ * Inicia la transmisión optimizada para estabilidad.
+ * Reduce bitrate de audio para evitar cortes y usa sincronización asíncrona.
+ * * @param {string} imageUrl - URL de la imagen (BunnyCDN)
+ * @param {string} audioUrl - URL del stream de radio
+ * @param {string} rtmpUrl - URL RTMP de YouTube
  * @param {number} durationHours - Duración en horas
  */
 function startStream(imageUrl, audioUrl, rtmpUrl, durationHours = 12) {
     return new Promise((resolve, reject) => {
-        // 1. Limpieza de proceso anterior
+        // 1. Limpieza de proceso anterior si existe
         if (ffmpegProcess) {
             try { 
                 ffmpegProcess.kill(); 
             } catch(e) {
-                console.log("Aviso: No se pudo cerrar proceso anterior.");
+                console.log("Aviso: No se pudo cerrar proceso anterior limpiamente.");
             }
         }
 
         const durationSeconds = durationHours * 3600;
-        console.log(`🚀 [FFmpeg] Iniciando stream (Modo: Sincronización Real-Time)...`);
+        console.log(`🚀 [FFmpeg] Iniciando stream (Modo: Estabilidad Máxima - 96k Audio)...`);
 
-        // 2. Configuración de Fuente (Para el reloj)
+        // 2. Configuración de Fuente para el reloj (si existe)
         const fontPath = path.join(__dirname, '../assets/font.ttf');
         let fontOption = "";
         
         if (fs.existsSync(fontPath)) {
-            // Normalizamos la ruta para que FFmpeg no falle en Linux/Windows
+            // Normalizamos ruta para compatibilidad Windows/Linux/FFmpeg
             const cleanFontPath = fontPath.replace(/\\/g, '/').replace(':', '\\:'); 
             fontOption = `fontfile='${cleanFontPath}':`;
         }
 
-        // 3. RELOJ VISUAL (Solo números HH:MM:SS, Centrado Arriba)
+        // 3. RELOJ VISUAL (HH:MM:SS) - Centrado Arriba
         const countdownExpression = 
             `%{eif\\:(${durationSeconds}-t)/3600\\:d\\:2}\\:%{eif\\:(mod(${durationSeconds}-t,3600))/60\\:d\\:2}\\:%{eif\\:mod(${durationSeconds}-t,60)\\:d\\:2}`;
 
-        // Filtro de texto: Centrado horizontalmente (x=(w-tw)/2), Arriba (y=50)
+        // Configuración visual del texto del reloj
         const drawTextFilter = `drawtext=${fontOption}text='${countdownExpression}':fontcolor=white:fontsize=45:x=(w-tw)/2:y=50:box=1:boxcolor=black@0.4:boxborderw=10`;
 
         // 4. Argumentos COMPLETOS de FFmpeg
         const args = [
             '-hide_banner', 
-            '-loglevel', 'warning', // Logs limpios, solo advertencias reales
-
-            // --- TRUCOS DE SINCRONIZACIÓN ---
-            '-fflags', '+genpts+igndts', // Corregir marcas de tiempo rotas de la radio
+            '-loglevel', 'error', // Solo mostrar errores críticos
             
             // --- ENTRADA 0: IMAGEN ---
+            '-thread_queue_size', '512', // Cola moderada para imagen
             '-loop', '1', 
             '-framerate', '1', 
             '-i', imageUrl,
 
-            // --- ENTRADA 1: AUDIO (LA CLAVE DE LA ESTABILIDAD) ---
-            // 'wallclock': Usa el reloj del sistema. Si la radio se atrasa, no intenta acelerar para compensar.
-            '-use_wallclock_as_timestamps', '1', 
+            // --- ENTRADA 1: AUDIO (RADIO ONLINE) ---
+            '-thread_queue_size', '1024',  // Cola más grande para audio
             
-            '-reconnect', '1',             // Reconectar si cae internet
-            '-reconnect_streamed', '1',    // Específico para streams
-            '-reconnect_delay_max', '5',   // Reintentar rápido (5s max)
+            // Flags de red para reconexión automática (VITAL)
+            '-reconnect', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_delay_max', '10', // Reintentar hasta 10 seg
             
-            '-thread_queue_size', '512',   // Cola equilibrada (ni muy chica, ni gigante)
+            // Buffer de análisis moderado (Evita lag inicial excesivo)
+            '-probesize', '5M',
+            '-analyzeduration', '5M',
+            
             '-i', audioUrl,
 
             // --- MAPEO ---
@@ -72,39 +73,44 @@ function startStream(imageUrl, audioUrl, rtmpUrl, durationHours = 12) {
             '-map', '1:a:0', // Audio de la radio
 
             // --- PROCESAMIENTO DE VIDEO ---
-            // Escalar a 720p, Dibujar Reloj, Forzar 1 FPS (Ahorra CPU)
+            // Escala a 720p, pone el reloj, fuerza 1 FPS para ahorrar CPU
             '-vf', `scale=1280:720,setsar=1,${drawTextFilter},fps=1`,
 
             // --- CODECS DE VIDEO ---
             '-c:v', 'libx264', 
-            '-preset', 'ultrafast', // Prioridad: Velocidad
-            '-tune', 'stillimage',  // Optimización para fotos
-            '-r', '1',              // Salida a 1 frame por segundo
+            '-preset', 'ultrafast', // Prioridad absoluta a la velocidad
+            '-tune', 'stillimage',  // Optimización para imagen fija
+            '-r', '1',              // 1 frame por segundo
             '-g', '2',              // Keyframe cada 2 segundos
-            '-pix_fmt', 'yuv420p',  // Colores estándar
+            '-pix_fmt', 'yuv420p',  // Formato de color estándar
             
-            // --- CODECS DE AUDIO ---
+            // --- CODECS DE AUDIO (OPTIMIZADO) ---
             '-c:a', 'aac', 
-            '-b:a', '128k',      // Calidad estándar
-            '-ac', '2',          // Forzar Estéreo (Evita problemas si la radio cambia a Mono)
-            '-ar', '44100',      // Forzar 44.1kHz (Estándar de YouTube)
+            '-b:a', '96k',       // <--- CALIDAD BAJADA A 96k (Más estabilidad, menos cortes)
+            '-ac', '2',          // Forzar Estéreo
+            '-ar', '44100',      // Frecuencia estándar
+            
+            // FILTRO DE SINCRONIZACIÓN (LA SOLUCIÓN)
+            // async=1: Permite estirar/comprimir audio suavemente para coincidir con video
+            // first_pts=0: Asegura que empiece desde el inicio
+            '-af', 'aresample=async=1:first_pts=0',
             
             // --- SALIDA ---
-            '-max_muxing_queue_size', '1024', // Buffer de salida seguro
-            '-t', `${durationSeconds}`,       // Duración exacta
-            '-f', 'flv',                      // Formato para YouTube
+            '-max_muxing_queue_size', '2048', // Buffer de salida seguro
+            '-t', `${durationSeconds}`,       // Tiempo límite
+            '-f', 'flv',                      // Formato YouTube
             rtmpUrl
         ];
 
-        // 5. Ejecutar FFmpeg
+        // 5. Iniciar Proceso
         ffmpegProcess = spawn('ffmpeg', args);
 
-        // 6. Manejo de Logs
+        // 6. Monitoreo de Logs (Solo errores)
         ffmpegProcess.stderr.on('data', (data) => {
             const msg = data.toString();
-            // Solo mostramos errores que indiquen un problema real
-            if (msg.includes('Error') || msg.includes('fail') || msg.includes('Server returned 40') || msg.includes('Connection refused')) {
-                console.error(`🔴 [FFmpeg]: ${msg.trim()}`);
+            // Filtramos mensajes irrelevantes
+            if (msg.includes('Error') || msg.includes('fail') || msg.includes('Invalid')) {
+                console.error(`🔴 [FFmpeg Warning]: ${msg.trim()}`);
             }
         });
 
@@ -115,13 +121,13 @@ function startStream(imageUrl, audioUrl, rtmpUrl, durationHours = 12) {
             resolve();
         });
 
-        // 8. Error crítico al arrancar
+        // 8. Error de inicio
         ffmpegProcess.on('error', (err) => {
             console.error("❌ [FFmpeg Error Crítico]:", err);
             reject(err);
         });
 
-        // 9. Keep-Alive (Log cada minuto)
+        // 9. Keep-Alive (Log cada minuto para Render)
         const keepAlive = setInterval(() => {
             if (ffmpegProcess) {
                 console.log(`   📡 Transmitiendo... (Quedan ${(durationSeconds/3600).toFixed(1)}h)`);
@@ -133,14 +139,14 @@ function startStream(imageUrl, audioUrl, rtmpUrl, durationHours = 12) {
 }
 
 /**
- * Detiene la transmisión forzosamente
+ * Detiene el stream manualmente
  */
 function stopStream() {
     if (ffmpegProcess) {
-        try { 
+        try {
             console.log("🛑 Deteniendo transmisión...");
-            ffmpegProcess.kill('SIGINT'); 
-        } catch(e) {
+            ffmpegProcess.kill('SIGINT');
+        } catch (e) {
             console.error("Error al detener proceso:", e);
         }
         ffmpegProcess = null;

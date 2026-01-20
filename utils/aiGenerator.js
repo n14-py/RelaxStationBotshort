@@ -10,45 +10,48 @@ sharp.cache(false);
 sharp.concurrency(1);
 
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
-// Usamos el modelo PrunaAI como pediste
+// Modelo PrunaAI (Rápido y eficiente)
 const DEEPINFRA_API_URL = "https://api.deepinfra.com/v1/inference/PrunaAI/p-image";
 const ASSETS_DIR = path.join(__dirname, '../assets');
 
 /**
- * Genera contenido (Español), Crea Imagen (Pruna), Edita (Logo Izq) y Sube a Bunny.
+ * Genera contenido creativo variado, asegura estilo Lofi Anime y edita la imagen.
  */
 async function prepareNextStream() {
-    console.log("🧠 [Director IA] Iniciando proceso creativo...");
+    console.log("🧠 [Director IA] Iniciando proceso creativo (Modo: Variedad Total)...");
 
     const tempFileName = `cover_${Date.now()}.jpg`;
     const tempFilePath = path.join(__dirname, `../${tempFileName}`);
 
     try {
         // ---------------------------------------------------------
-        // 1. GENERACIÓN DE TEXTO (EN ESPAÑOL)
+        // 1. GENERACIÓN DE TEXTO (EN ESPAÑOL + CREATIVIDAD)
         // ---------------------------------------------------------
         console.log("   > Consultando a DeepSeek...");
         const webLink = process.env.WEBSITE_URL || "https://desderelaxstation.com";
         const spotifyLink = process.env.SPOTIFY_URL || "#";
 
+        // PROMPT DEL SISTEMA: Le exigimos variedad y creatividad
         const systemPrompt = `Eres el Director Creativo de "Relax Station", una radio Lofi 24/7.
-        Tu misión es crear un concepto único para las próximas 12 horas.
+        Tu misión es crear un concepto ÚNICO para las próximas 12 horas.
+        
+        ¡IMPORTANTE!: Tienes libertad creativa total. NO repitas escenarios típicos de "escritorio de estudio" o "cafetería". Imagina lugares diferentes: un tren nocturno en Japón, una cabaña en un bosque lluvioso, una azotea en una ciudad futurista, una playa al atardecer, una biblioteca antigua, un invernadero, etc. El mundo es tuyo.
         
         INSTRUCCIÓN OBLIGATORIA: Piensa, escribe y responde ÚNICAMENTE EN ESPAÑOL.
         
         Responde SOLO con este JSON:
         {
             "title": "Título atractivo en Español con emojis (max 90 chars)",
-            "description": "Descripción inspiradora en Español (min 3 párrafos)",
-            "concept_reasoning": "Breve explicación en Español de por qué elegiste este tema",
-            "image_prompt": "Prompt detallado en INGLÉS para generar imagen (lofi style, aesthetic, 8k, detailed, cozy)"
+            "description": "Descripción inspiradora y atmosférica en Español (min 3 párrafos)",
+            "concept_reasoning": "Breve explicación en Español de por qué elegiste este escenario único",
+            "scene_description": "Descripción detallada en INGLÉS de la escena física (ej: 'a cozy cabin window looking out at a rainy forest at dusk, a cat sleeping on the sill'). SOLO la escena, sin estilo."
         }`;
 
         const textResponse = await axios.post(DEEPSEEK_API_URL, {
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: "Genera un nuevo concepto ahora." }
+                { role: "user", content: "Sorpréndeme con un concepto nuevo y diferente." }
             ],
             response_format: { type: "json_object" }
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}` } });
@@ -61,12 +64,19 @@ async function prepareNextStream() {
         console.log(`   💡 Concepto: ${content.concept_reasoning}`);
 
         // ---------------------------------------------------------
-        // 2. GENERACIÓN DE IMAGEN (DEEPINFRA - PRUNA)
+        // 2. CONSTRUCCIÓN DEL PROMPT DE IMAGEN (ESTILO FORZADO)
         // ---------------------------------------------------------
         console.log("   > Generando imagen con DeepInfra (PrunaAI)...");
         
+        // Aquí está la magia: Inyectamos la escena variable dentro de tu estilo fijo.
+        const masterStylePrompt = `Anime-style lofi illustration, calm and relaxing atmosphere, soft pastel colors, warm sunset lighting, dreamy sky with pink and orange clouds, cinematic lighting, peaceful mood, cozy vibes, high-quality digital art. 
+        
+        New original scene based on: ${content.scene_description}. 
+        
+        A small animal or character seen from behind (cat, dog, or person silhouette), quietly observing the scenery, creating a feeling of calm, nostalgia, and relaxation. Gentle depth of field, soft shadows, smooth brush strokes, anime background style, lofi aesthetic, ultra-detailed, clean illustration, no text.`;
+
         const imgResponse = await axios.post(DEEPINFRA_API_URL, {
-            prompt: content.image_prompt,
+            prompt: masterStylePrompt,
             num_inference_steps: 25, 
             width: 1024, 
             height: 768  
@@ -78,14 +88,14 @@ async function prepareNextStream() {
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
         // ---------------------------------------------------------
-        // 3. EDICIÓN GRÁFICA (LOGO A LA IZQUIERDA)
+        // 3. EDICIÓN GRÁFICA (BRANDING)
         // ---------------------------------------------------------
-        console.log("   > Editando imagen...");
+        console.log("   > Editando imagen (Logo Izq + Texto)...");
 
         // Ajustamos lienzo a 1280x720
         const resizedBuffer = await sharp(rawBuffer).resize(1280, 720).toBuffer();
 
-        // TEXTO: Centrado abajo, pequeño, elegante, con sombra para que se lea sin cuadro negro
+        // TEXTO: Centrado abajo, elegante, con sombra
         const svgText = Buffer.from(`
         <svg width="1280" height="720">
             <defs>
@@ -104,15 +114,12 @@ async function prepareNextStream() {
 
         const layers = [{ input: svgText }];
 
-        // LOGO SPOTIFY: A la IZQUIERDA (separado del texto)
+        // LOGO SPOTIFY: A la IZQUIERDA (Posición 380, lejos del texto)
         const spotifyPath = path.join(ASSETS_DIR, 'spotify_logo.png');
         if (fs.existsSync(spotifyPath)) {
             const logoBuffer = await sharp(spotifyPath).resize(32, 32).toBuffer();
-            
-            // Posición:
-            // left: 480 -> Bastante a la izquierda del centro (640) para no tocar el texto
-            // top: 672 -> Alineado verticalmente con el texto
-            layers.push({ input: logoBuffer, top: 672, left: 425 });
+            // Posición: left 380, top 672 (alineado al texto)
+            layers.push({ input: logoBuffer, top: 672, left: 440 });
         }
 
         await sharp(resizedBuffer)
@@ -127,11 +134,12 @@ async function prepareNextStream() {
         const bunnyData = await uploadToBunny(tempFilePath, tempFileName);
 
         console.log("   > Guardando en MongoDB...");
+        // Guardamos el prompt maestro completo para referencia
         const newStream = new Stream({
             title: content.title,
             description: content.description,
             concept_reasoning: content.concept_reasoning,
-            image_prompt: content.image_prompt,
+            image_prompt: masterStylePrompt, // Guardamos el prompt final usado
             bunny_image_url: bunnyData.url,
             bunny_file_path: bunnyData.path,
             status: 'READY'
@@ -139,10 +147,9 @@ async function prepareNextStream() {
 
         await newStream.save();
         
-        console.log("✅ ¡CONTENIDO LISTO!");
+        console.log("✅ ¡CONTENIDO LISTO Y VARIADO!");
         console.log(`   ID: ${newStream._id}`);
 
-        // Borramos el archivo temporal
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
 
         return newStream;
