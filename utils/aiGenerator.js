@@ -112,7 +112,7 @@ async function prepareNextStream() {
             // Posición:
             // left: 480 -> Bastante a la izquierda del centro (640) para no tocar el texto
             // top: 672 -> Alineado verticalmente con el texto
-            layers.push({ input: logoBuffer, top: 672, left: 380 });
+            layers.push({ input: logoBuffer, top: 672, left: 425 });
         }
 
         await sharp(resizedBuffer)
