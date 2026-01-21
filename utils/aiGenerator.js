@@ -13,46 +13,45 @@ sharp.cache(false);
 sharp.concurrency(1);
 
 /**
- * Genera todo el contenido para un Short: Metadatos de texto + Imagen Vertical Editada
+ * Genera todo el contenido para un Short: Metadatos de texto + Imagen Vertical Full HD
  */
 async function generateShortData() {
-    console.log("🧠 [IA] Iniciando proceso creativo para Short Vertical...");
+    console.log("🧠 [IA] Iniciando proceso creativo para Short Vertical FHD...");
 
     const tempFileName = `temp_short_bg_${Date.now()}.jpg`;
     const tempFilePath = path.join(__dirname, `../${tempFileName}`);
 
     try {
         // -------------------------------------------------------------------------
-        // 1. GENERACIÓN DE TEXTO (Título, Descripción Viral y Prompt de Imagen)
+        // 1. GENERACIÓN DE TEXTO (Título, Descripción Invitadora y Prompt)
         // -------------------------------------------------------------------------
         const websiteUrl = process.env.WEBSITE_URL;
         const spotifyUrl = process.env.SPOTIFY_URL;
         const liveUrl = process.env.LIVE_URL;
 
-        const systemPrompt = `Eres el Social Media Manager de "Relax Station", una radio Lofi 24/7.
-        Tu objetivo es crear contenido viral para YouTube Shorts, TikTok e Instagram Reels.
+        const systemPrompt = `Eres el Social Media Manager de "Desde Relax Station".
+        Tu objetivo es crear contenido viral y ATRACTIVO para YouTube Shorts.
         
         TUS TAREAS:
         1. Crea un Título corto y atractivo en ESPAÑOL (max 60 caracteres).
-        2. Crea una Descripción que invite a la calma. DEBE incluir obligatoriamente estas frases exactas al final:
-           "🔴 ESTAMOS EN VIVO AHORA: ${liveUrl}"
+        2. Crea una Descripción que invite a la calma. OBLIGATORIO: Debe empezar con una frase invitando a unirse al live o a escuchar música, seguido de los links exactos:
+           "¡Únete a nuestra radio 24/7 en vivo! 🔴 ${liveUrl}"
            "🎧 Escucha en Spotify: ${spotifyUrl}"
            "🌐 Nuestra Web: ${websiteUrl}"
-        3. Crea un Prompt visual en INGLÉS para una imagen VERTICAL (9:16). Estilo: Anime Lofi, Nostálgico, Detallado.
-           (Ejemplos: "Vertical anime art, view from a rainy window at night", "Girl reading on a balcony at sunset").
+        3. Crea un Prompt visual en INGLÉS para una imagen VERTICAL (9:16). Estilo: Anime Lofi, Nostálgico, Muy Detallado, Calidad Maestra.
         
         Responde SOLO con este JSON:
         {
             "title": "Título aquí",
-            "description": "Descripción aquí...",
-            "image_prompt": "Prompt en inglés aquí..."
+            "description": "Frase de invitación aquí... \n\n🔴 Link... 🎧 Link... 🌐 Link...",
+            "image_prompt": "Prompt en inglés detallado..."
         }`;
 
         const textResponse = await axios.post(DEEPSEEK_API_URL, {
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: "Genera un concepto nuevo para un video corto." }
+                { role: "user", content: "Genera un concepto nuevo y nítido." }
             ],
             response_format: { type: "json_object" }
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}` } });
@@ -61,18 +60,18 @@ async function generateShortData() {
         console.log(`   📝 Título generado: "${content.title}"`);
 
         // -------------------------------------------------------------------------
-        // 2. GENERACIÓN DE IMAGEN (Vertical 720x1280)
+        // 2. GENERACIÓN DE IMAGEN (Vertical Full HD 1080x1920)
         // -------------------------------------------------------------------------
-        console.log("   🎨 Generando arte vertical con PrunaAI...");
+        console.log("   🎨 Generando arte vertical FULL HD con PrunaAI...");
         
-        // Forzamos las palabras clave de estilo en el prompt
-        const finalImagePrompt = `(Vertical orientation, 9:16 aspect ratio), ${content.image_prompt}, anime style, lofi aesthetic, highly detailed, 8k, soft lighting, relaxing atmosphere, no text`;
+        // Forzamos palabras clave de alta calidad y nitidez
+        const finalImagePrompt = `(Vertical orientation, 9:16 aspect ratio, 1080x1920 resolution), ${content.image_prompt}, anime style, lofi aesthetic, highly detailed, sharp focus, 8k masterpiece, cinematic lighting, no text`;
 
         const imgResponse = await axios.post(DEEPINFRA_API_URL, {
             prompt: finalImagePrompt,
-            num_inference_steps: 25,
-            width: 720,  // Ancho móvil
-            height: 1280 // Alto móvil
+            num_inference_steps: 30, // Unos pasos más para más detalle
+            width: 1080,  // FULL HD Vertical Ancho
+            height: 1920  // FULL HD Vertical Alto
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPINFRA_API_KEY}` } });
 
         let imageBase64 = imgResponse.data.images?.[0]?.image_base64 || imgResponse.data.images?.[0];
@@ -81,43 +80,44 @@ async function generateShortData() {
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
         // -------------------------------------------------------------------------
-        // 3. EDICIÓN Y BRANDING (Sharp)
+        // 3. EDICIÓN Y BRANDING (Reajustado para 1080x1920)
         // -------------------------------------------------------------------------
-        console.log("   🖌️ Aplicando branding y logo de Spotify...");
+        console.log("   🖌️ Aplicando branding en alta resolución...");
 
-        // Creamos el texto SVG con sombra para que se lea bien sobre cualquier fondo
-        // Posición Y=1050 es ideal para que no lo tapen los botones de descripción de TikTok/Shorts
+        // Ajustamos el SVG y las posiciones para el nuevo lienzo más grande (1080x1920)
+        // Posición Y=1600 y fuente más grande (42)
         const svgText = Buffer.from(`
-        <svg width="720" height="1280">
+        <svg width="1080" height="1920">
             <defs>
                 <filter id="shadow" x="-1" y="-1" width="3" height="3">
                     <feFlood flood-color="black" flood-opacity="0.9"/>
                     <feComposite in2="SourceGraphic" operator="in"/>
-                    <feGaussianBlur stdDeviation="3"/>
-                    <feOffset dx="2" dy="2" result="offsetblur"/>
+                    <feGaussianBlur stdDeviation="4"/>
+                    <feOffset dx="3" dy="3" result="offsetblur"/>
                     <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
                 </filter>
             </defs>
-            <text x="50%" y="1050" font-family="Arial" font-size="28" fill="white" text-anchor="middle" font-weight="bold" letter-spacing="2" filter="url(#shadow)">
+            <text x="50%" y="1600" font-family="Arial" font-size="42" fill="white" text-anchor="middle" font-weight="bold" letter-spacing="3" filter="url(#shadow)">
                 DESDE RELAX STATION
             </text>
         </svg>`);
 
         const layers = [{ input: svgText }];
 
-        // Añadimos el Logo de Spotify (Pequeño, centrado encima del texto)
+        // Logo Spotify (Más grande y recolocado)
         const spotifyPath = path.join(ASSETS_DIR, 'spotify_logo.png');
         if (fs.existsSync(spotifyPath)) {
-            const logoBuffer = await sharp(spotifyPath).resize(40, 40).toBuffer();
-            // Calculamos posición para centrarlo (720/2 - 20 = 340) y ponerlo encima del texto (y=1000)
-            layers.push({ input: logoBuffer, top: 960, left: 340 });
+            // Agrandamos el logo a 60x60
+            const logoBuffer = await sharp(spotifyPath).resize(60, 60).toBuffer();
+            // Centrado: 1080/2 = 540. Restamos mitad del logo (30) = 510. Altura Y=1500.
+            layers.push({ input: logoBuffer, top: 1500, left: 510 });
         }
 
-        // Componemos la imagen final
+        // Componemos la imagen final en alta calidad
         await sharp(rawBuffer)
-            .resize(720, 1280) // Aseguramos dimensiones
+            .resize(1080, 1920) // Aseguramos FHD
             .composite(layers)
-            .jpeg({ quality: 95 })
+            .jpeg({ quality: 98 }) // Máxima calidad JPG
             .toFile(tempFilePath);
 
         return {
