@@ -8,84 +8,86 @@ const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 const DEEPINFRA_API_URL = "https://api.deepinfra.com/v1/inference/PrunaAI/p-image";
 const ASSETS_DIR = path.join(__dirname, '../assets');
 
-// Configuración de Sharp para velocidad
+// Configuración de Sharp
 sharp.cache(false);
 sharp.concurrency(1);
 
-/**
- * Genera todo el contenido para un Short: Metadatos de texto + Imagen Vertical Full HD
- */
 async function generateShortData() {
-    console.log("🧠 [IA] Iniciando proceso creativo para Short Vertical FHD...");
+    console.log("🧠 [IA] Iniciando proceso creativo...");
 
     const tempFileName = `temp_short_bg_${Date.now()}.jpg`;
     const tempFilePath = path.join(__dirname, `../${tempFileName}`);
 
     try {
         // -------------------------------------------------------------------------
-        // 1. GENERACIÓN DE TEXTO (Título, Descripción Invitadora y Prompt)
+        // 1. GENERACIÓN DE TEXTO (Creatividad Aumentada)
         // -------------------------------------------------------------------------
         const websiteUrl = process.env.WEBSITE_URL;
         const spotifyUrl = process.env.SPOTIFY_URL;
         const liveUrl = process.env.LIVE_URL;
 
-        const systemPrompt = `Eres el Social Media Manager de "Desde Relax Station".
-        Tu objetivo es crear contenido viral y ATRACTIVO para YouTube Shorts.
+        // PROMPT MEJORADO: Más agresivo con la creatividad y prohibiendo lo básico
+        const systemPrompt = `Eres el Director Creativo de "Desde Relax Station".
+        Tu misión es crear títulos VIRALES y MISTERIOSOS para Shorts de YouTube.
+        
+        REGLAS DE ORO:
+        - 🚫 PROHIBIDO usar títulos aburridos como "Relax Total", "Música para dormir", "Paz interior".
+        - ✅ USA títulos que generen curiosidad, nostalgia o emoción (Clickbait sano).
+        - Ejemplos buenos: "¿Te sientes solo esta noche?", "La lluvia borra todo...", "Este sonido cura el insomnio", "3 AM Vibes".
         
         TUS TAREAS:
-        1. Crea un Título corto y atractivo en ESPAÑOL (max 60 caracteres).
-        2. Crea una Descripción que invite a la calma. OBLIGATORIO: Debe empezar con una frase invitando a unirse al live o a escuchar música, seguido de los links exactos:
-           "¡Únete a nuestra radio 24/7 en vivo! 🔴 ${liveUrl}"
-           "🎧 Escucha en Spotify: ${spotifyUrl}"
-           "🌐 Nuestra Web: ${websiteUrl}"
-        3. Crea un Prompt visual en INGLÉS para una imagen VERTICAL (9:16). Estilo: Anime Lofi, Nostálgico, Muy Detallado, Calidad Maestra.
+        1. Crea un Título en ESPAÑOL (max 60 caracteres) con un emoji.
+        2. Crea una Descripción invitando al LIVE. Formato obligatorio:
+           "¿Necesitas escapar? Estamos en vivo 🔴 ${liveUrl}"
+           "🎧 Spotify: ${spotifyUrl}"
+           "🌐 Web: ${websiteUrl}"
+        3. Crea un Prompt visual en INGLÉS para imagen VERTICAL. Estilo: "Masterpiece Anime Lofi", iluminación cinemática, muy detallado.
         
-        Responde SOLO con este JSON:
+        Responde SOLO JSON:
         {
-            "title": "Título aquí",
-            "description": "Frase de invitación aquí... \n\n🔴 Link... 🎧 Link... 🌐 Link...",
-            "image_prompt": "Prompt en inglés detallado..."
+            "title": "Título...",
+            "description": "Descripción...",
+            "image_prompt": "Prompt inglés..."
         }`;
 
         const textResponse = await axios.post(DEEPSEEK_API_URL, {
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: "Genera un concepto nuevo y nítido." }
+                { role: "user", content: "Sorpréndeme con algo viral hoy." }
             ],
             response_format: { type: "json_object" }
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}` } });
 
         const content = JSON.parse(textResponse.data.choices[0].message.content);
-        console.log(`   📝 Título generado: "${content.title}"`);
+        console.log(`   📝 Título: "${content.title}"`);
 
         // -------------------------------------------------------------------------
-        // 2. GENERACIÓN DE IMAGEN (Vertical Full HD 1080x1920)
+        // 2. GENERACIÓN DE IMAGEN (Resolución corregida para evitar Error 422)
         // -------------------------------------------------------------------------
-        console.log("   🎨 Generando arte vertical FULL HD con PrunaAI...");
+        console.log("   🎨 Generando arte con PrunaAI (1024x1792)...");
         
-        // Forzamos palabras clave de alta calidad y nitidez
-        const finalImagePrompt = `(Vertical orientation, 9:16 aspect ratio, 1080x1920 resolution), ${content.image_prompt}, anime style, lofi aesthetic, highly detailed, sharp focus, 8k masterpiece, cinematic lighting, no text`;
+        const finalImagePrompt = `(Vertical orientation, 9:16 aspect ratio), ${content.image_prompt}, anime style, lofi aesthetic, 8k resolution, highly detailed, sharp focus, cinematic lighting, masterpiece, no text`;
 
         const imgResponse = await axios.post(DEEPINFRA_API_URL, {
             prompt: finalImagePrompt,
-            num_inference_steps: 30, // Unos pasos más para más detalle
-            width: 1080,  // FULL HD Vertical Ancho
-            height: 1920  // FULL HD Vertical Alto
+            num_inference_steps: 30,
+            // IMPORTANTE: Usamos múltiplos de 64 para evitar el Error 422
+            width: 1024, 
+            height: 1792
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPINFRA_API_KEY}` } });
 
         let imageBase64 = imgResponse.data.images?.[0]?.image_base64 || imgResponse.data.images?.[0];
-        if (!imageBase64) throw new Error("La IA no devolvió ninguna imagen.");
+        if (!imageBase64) throw new Error("La IA no devolvió imagen.");
 
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
         // -------------------------------------------------------------------------
-        // 3. EDICIÓN Y BRANDING (Reajustado para 1080x1920)
+        // 3. EDICIÓN Y BRANDING (Escalado a 1080x1920 FHD)
         // -------------------------------------------------------------------------
-        console.log("   🖌️ Aplicando branding en alta resolución...");
+        console.log("   🖌️ Escalando a FHD y aplicando marca...");
 
-        // Ajustamos el SVG y las posiciones para el nuevo lienzo más grande (1080x1920)
-        // Posición Y=1600 y fuente más grande (42)
+        // SVG Ajustado
         const svgText = Buffer.from(`
         <svg width="1080" height="1920">
             <defs>
@@ -104,20 +106,19 @@ async function generateShortData() {
 
         const layers = [{ input: svgText }];
 
-        // Logo Spotify (Más grande y recolocado)
+        // Logo Spotify (Ajustado arriba del texto)
         const spotifyPath = path.join(ASSETS_DIR, 'spotify_logo.png');
         if (fs.existsSync(spotifyPath)) {
-            // Agrandamos el logo a 60x60
             const logoBuffer = await sharp(spotifyPath).resize(60, 60).toBuffer();
-            // Centrado: 1080/2 = 540. Restamos mitad del logo (30) = 510. Altura Y=1500.
-            layers.push({ input: logoBuffer, top: 1500, left: 510 });
+            // Posición ajustada para que no tape
+            layers.push({ input: logoBuffer, top: 1480, left: 510 });
         }
 
-        // Componemos la imagen final en alta calidad
+        // PROCESADO FINAL: Aquí redimensionamos de 1024x1792 -> 1080x1920
         await sharp(rawBuffer)
-            .resize(1080, 1920) // Aseguramos FHD
+            .resize(1080, 1920, { fit: 'fill' }) // Forzamos FHD exacto
             .composite(layers)
-            .jpeg({ quality: 98 }) // Máxima calidad JPG
+            .jpeg({ quality: 100 }) // Calidad máxima
             .toFile(tempFilePath);
 
         return {
@@ -127,7 +128,7 @@ async function generateShortData() {
         };
 
     } catch (error) {
-        console.error("❌ Error en aiGenerator:", error.message);
+        console.error("❌ Error en aiGenerator:", error.response ? error.response.data : error.message);
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
         throw error;
     }
