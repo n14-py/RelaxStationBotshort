@@ -26,14 +26,13 @@ async function generateShortData() {
         const spotifyUrl = process.env.SPOTIFY_URL;
         const liveUrl = process.env.LIVE_URL;
 
-        // PROMPT MEJORADO: Más agresivo con la creatividad y prohibiendo lo básico
         const systemPrompt = `Eres el Director Creativo de "Desde Relax Station".
         Tu misión es crear títulos VIRALES y MISTERIOSOS para Shorts de YouTube.
         
         REGLAS DE ORO:
-        - 🚫 PROHIBIDO usar títulos aburridos como "Relax Total", "Música para dormir", "Paz interior".
+        - 🚫 PROHIBIDO usar títulos aburridos como "Relax Total", "Música para dormir".
         - ✅ USA títulos que generen curiosidad, nostalgia o emoción (Clickbait sano).
-        - Ejemplos buenos: "¿Te sientes solo esta noche?", "La lluvia borra todo...", "Este sonido cura el insomnio", "3 AM Vibes".
+        - Ejemplos buenos: "¿Te sientes solo?", "El sonido del silencio...", "No podrás dejar de escuchar", "3 AM Vibes".
         
         TUS TAREAS:
         1. Crea un Título en ESPAÑOL (max 60 caracteres) con un emoji.
@@ -54,7 +53,7 @@ async function generateShortData() {
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: "Sorpréndeme con algo viral hoy." }
+                { role: "user", content: "Genera algo viral y emotivo hoy." }
             ],
             response_format: { type: "json_object" }
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}` } });
@@ -63,18 +62,18 @@ async function generateShortData() {
         console.log(`   📝 Título: "${content.title}"`);
 
         // -------------------------------------------------------------------------
-        // 2. GENERACIÓN DE IMAGEN (Resolución corregida para evitar Error 422)
+        // 2. GENERACIÓN DE IMAGEN (Resolución Segura: 768x1344)
         // -------------------------------------------------------------------------
-        console.log("   🎨 Generando arte con PrunaAI (1024x1792)...");
+        console.log("   🎨 Generando arte con PrunaAI (768x1344)...");
         
         const finalImagePrompt = `(Vertical orientation, 9:16 aspect ratio), ${content.image_prompt}, anime style, lofi aesthetic, 8k resolution, highly detailed, sharp focus, cinematic lighting, masterpiece, no text`;
 
         const imgResponse = await axios.post(DEEPINFRA_API_URL, {
             prompt: finalImagePrompt,
             num_inference_steps: 30,
-            // IMPORTANTE: Usamos múltiplos de 64 para evitar el Error 422
-            width: 1024, 
-            height: 1792
+            // AJUSTE CRÍTICO: Usamos 768x1344 para respetar el límite de 1440 px
+            width: 768, 
+            height: 1344
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPINFRA_API_KEY}` } });
 
         let imageBase64 = imgResponse.data.images?.[0]?.image_base64 || imgResponse.data.images?.[0];
@@ -83,7 +82,7 @@ async function generateShortData() {
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
         // -------------------------------------------------------------------------
-        // 3. EDICIÓN Y BRANDING (Escalado a 1080x1920 FHD)
+        // 3. EDICIÓN Y ESCALADO (A 1080x1920 FHD)
         // -------------------------------------------------------------------------
         console.log("   🖌️ Escalando a FHD y aplicando marca...");
 
@@ -106,15 +105,15 @@ async function generateShortData() {
 
         const layers = [{ input: svgText }];
 
-        // Logo Spotify (Ajustado arriba del texto)
+        // Logo Spotify
         const spotifyPath = path.join(ASSETS_DIR, 'spotify_logo.png');
         if (fs.existsSync(spotifyPath)) {
             const logoBuffer = await sharp(spotifyPath).resize(60, 60).toBuffer();
-            // Posición ajustada para que no tape
+            // Posición ajustada
             layers.push({ input: logoBuffer, top: 1480, left: 510 });
         }
 
-        // PROCESADO FINAL: Aquí redimensionamos de 1024x1792 -> 1080x1920
+        // PROCESADO FINAL: Aquí transformamos la imagen segura (768x1344) a Full HD (1080x1920)
         await sharp(rawBuffer)
             .resize(1080, 1920, { fit: 'fill' }) // Forzamos FHD exacto
             .composite(layers)
@@ -128,7 +127,9 @@ async function generateShortData() {
         };
 
     } catch (error) {
-        console.error("❌ Error en aiGenerator:", error.response ? error.response.data : error.message);
+        // Mejor manejo de error para ver detalles si falla de nuevo
+        const errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error("❌ Error en aiGenerator:", errorMsg);
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
         throw error;
     }
