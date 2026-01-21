@@ -11,22 +11,21 @@ async function uploadToYouTube(videoPath, title, description) {
     try {
         // 1. Autenticación
         const authClient = await getAuthClient();
-
         const youtube = google.youtube({ version: 'v3', auth: authClient });
 
         // 2. Metadatos del video
-        // Nota: Agregamos #Shorts para asegurar que YouTube lo detecte
-        const finalTitle = title.length > 90 ? title.substring(0, 90) : title;
+        // IMPORTANTE: Respetamos el título tal cual viene de la IA (Sin agregar #Shorts)
+        const finalTitle = title.length > 100 ? title.substring(0, 100) : title;
         
         const requestBody = {
             snippet: {
-                title: `${finalTitle} #Shorts`,
-                description: description,
-                tags: ['lofi', 'relax', 'shorts', 'anime', 'chill'],
+                title: finalTitle, // Título limpio
+                description: description, // Descripción con hashtags y links
+                tags: ['desderelaxstation', 'lofi', 'relax', 'chill'], // Tags internos (ocultos)
                 categoryId: '10' // Categoría: Música
             },
             status: {
-                privacyStatus: 'public', // 'public', 'private', o 'unlisted'
+                privacyStatus: 'public',
                 selfDeclaredMadeForKids: false
             }
         };

@@ -20,37 +20,35 @@ async function generateShortData() {
 
     try {
         // -------------------------------------------------------------------------
-        // 1. GENERACIÓN DE TEXTO (Descripción Directa + Título Viral)
+        // 1. GENERACIÓN DE TEXTO (Reglas Estrictas del Usuario)
         // -------------------------------------------------------------------------
         const websiteUrl = process.env.WEBSITE_URL;
-        const spotifyUrl = process.env.SPOTIFY_URL;
-        const liveUrl = process.env.LIVE_URL;
-
-        const systemPrompt = `Eres el Manager de Marketing de "Desde Relax Station".
-        Tu misión es llevar tráfico al LIVE de YouTube y a Spotify.
+        
+        const systemPrompt = `Eres el Community Manager de "Relax Station".
+        Tu único objetivo es que la gente entre al PERFIL del canal para ver el Directo.
         
         REGLAS DE ORO PARA EL TÍTULO:
-        - Título corto, misterioso y viral (Clickbait emocional).
-        - Ejemplo: "¿Te sientes solo?", "El sonido que cura...", "3 AM Vibes 🌑".
+        - SOLO texto corto y viral.
+        - PROHIBIDO poner enlaces o hashtags en el título.
+        - PROHIBIDO poner "#Shorts".
+        - Ejemplo: "¿Necesitas paz?", "El sonido perfecto...", "Lluvia para dormir 🌧️".
         
-        REGLAS DE ORO PARA LA DESCRIPCIÓN (STRICT MODE):
-        - La descripción NO puede empezar con poesía.
-        - DEBE EMPEZAR OBLIGATORIAMENTE invitando a entrar al Live YA MISMO.
-        - Estructura EXACTA requerida:
-          "🔴 ¡ESTAMOS EN VIVO! Entra a relajarte aquí: ${liveUrl}"
-          "🎧 Escucha nuestra Playlist en Spotify: ${spotifyUrl}"
-          "🌐 Visita nuestra web: ${websiteUrl}"
-          (Aquí abajo puedes poner una frase corta inspiradora sobre el título).
+        REGLAS DE ORO PARA LA DESCRIPCIÓN:
+        - Debe empezar OBLIGATORIAMENTE con esta invitación:
+          "🔴 ¡ESTAMOS EN DIRECTO! Entra ahora a nuestro PERFIL/CANAL para escuchar la radio 24/7."
+        - Luego una frase corta sobre el video.
+        - Al final, añade ÚNICAMENTE estos hashtags:
+          #desderelaxstation #lofi
         
         TUS TAREAS:
-        1. Generar Título.
-        2. Generar Descripción con la estructura de arriba.
+        1. Título Limpio (Sin tags).
+        2. Descripción con la invitación al perfil y los hashtags.
         3. Prompt visual en INGLÉS (Vertical, Anime Lofi Masterpiece, 8k).
         
         Responde SOLO JSON:
         {
-            "title": "Título...",
-            "description": "Descripción...",
+            "title": "Título limpio...",
+            "description": "Descripción con invitación y hashtags...",
             "image_prompt": "Prompt inglés..."
         }`;
 
@@ -58,7 +56,7 @@ async function generateShortData() {
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: "Genera el siguiente Short viral." }
+                { role: "user", content: "Genera el Short." }
             ],
             response_format: { type: "json_object" }
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}` } });
@@ -67,7 +65,7 @@ async function generateShortData() {
         console.log(`   📝 Título: "${content.title}"`);
 
         // -------------------------------------------------------------------------
-        // 2. GENERACIÓN DE IMAGEN (Resolución Segura: 768x1344)
+        // 2. GENERACIÓN DE IMAGEN (768x1344 - Zona Segura)
         // -------------------------------------------------------------------------
         console.log("   🎨 Generando arte con PrunaAI (768x1344)...");
         
@@ -86,9 +84,9 @@ async function generateShortData() {
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
         // -------------------------------------------------------------------------
-        // 3. EDICIÓN Y ESCALADO (Corrección: NO ESTIRAR)
+        // 3. EDICIÓN Y ESCALADO (1080x1920 FHD - Ajuste Cover)
         // -------------------------------------------------------------------------
-        console.log("   🖌️ Escalando a FHD (Cover) y aplicando marca...");
+        console.log("   🖌️ Escalando a FHD y aplicando marca...");
 
         // SVG Ajustado
         const svgText = Buffer.from(`
@@ -116,10 +114,9 @@ async function generateShortData() {
             layers.push({ input: logoBuffer, top: 1480, left: 510 });
         }
 
-        // --- AQUÍ ESTÁ EL CAMBIO CLAVE (fit: 'cover') ---
         await sharp(rawBuffer)
             .resize(1080, 1920, { 
-                fit: 'cover',   // <--- ESTO EVITA QUE SE ESTIRE. Recorta lo que sobra.
+                fit: 'cover', 
                 position: 'center' 
             }) 
             .composite(layers)
