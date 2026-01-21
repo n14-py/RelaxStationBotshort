@@ -3,118 +3,152 @@ const express = require('express');
 const mongoose = require('mongoose');
 const moment = require('moment');
 
-// Módulos
+// --- IMPORTACIÓN DE MÓDULOS ---
 const { generateShortData } = require('./utils/aiGenerator');
 const { renderShortVideo, cleanupFiles } = require('./utils/videoEngine');
 const { uploadToBunny } = require('./utils/bunnyHandler');
-const { uploadToYouTube } = require('./utils/youtubeUploader'); // <--- NUEVO
+const { uploadToYouTube } = require('./utils/youtubeUploader');
 const Short = require('./models/Short');
 
-// Configuración
+// --- CONFIGURACIÓN DE LA FÁBRICA ---
 const PORT = process.env.PORT || 8080;
-const MAX_SHORTS = parseInt(process.env.MAX_SHORTS_PER_DAY) || 20;
-const SHORT_DURATION = parseInt(process.env.SHORT_DURATION) || 58;
 const PLAYLIST_URL = process.env.PLAYLIST_URL;
+const SHORT_DURATION = parseInt(process.env.SHORT_DURATION) || 58;
 
-const INTERVAL_MS = (24 * 60 * 60 * 1000) / MAX_SHORTS;
+// Configuración de Tiempos (Tu Estrategia 5x5)
+const BATCH_SIZE = 5;          // Cuántos videos hacer seguidos
+const BATCH_COOLDOWN_HOURS = 5; // Horas de descanso después del lote
+const SAFETY_DELAY_MINUTES = 2; // Minutos de espera entre video y video del mismo lote (Anti-Spam)
 
-// Estado
+// Variables de Estado (Para ver en la web)
 let factoryStatus = "INICIANDO SISTEMA...";
+let currentBatchCount = 0;
 let lastVideoUrl = "Ninguno todavía";
-let lastYoutubeId = "Pendiente";
-let nextRunTime = null;
+let nextBatchTime = null;
 
+// --- SERVIDOR WEB (DASHBOARD) ---
 const app = express();
+
 app.get('/', (req, res) => {
     res.send(`
-        <div style="font-family: sans-serif; text-align: center; padding: 40px; background: #1a1a1a; color: white;">
-            <h1>🏭 Fábrica de Shorts - Relax Station</h1>
-            <div style="border: 1px solid #333; padding: 20px; border-radius: 10px; background: #222;">
-                <p><strong>Estado:</strong> ${factoryStatus}</p>
-                <p><strong>Meta:</strong> ${MAX_SHORTS} videos/día</p>
-                <p><strong>Siguiente:</strong> ${nextRunTime ? moment(nextRunTime).fromNow() : 'Calculando...'}</p>
-                <p><strong>Último Video (Bunny):</strong> <a href="${lastVideoUrl}" target="_blank" style="color: #4CAF50;">Ver Video</a></p>
-                <p><strong>Último YouTube ID:</strong> <span style="color: #f00;">${lastYoutubeId}</span></p>
+        <div style="font-family: sans-serif; text-align: center; padding: 40px; background: #121212; color: #e0e0e0;">
+            <h1 style="color: #bb86fc;">🏭 Fábrica de Shorts - Relax Station</h1>
+            <div style="border: 1px solid #333; padding: 30px; border-radius: 15px; background: #1e1e1e; max-width: 600px; margin: 0 auto;">
+                <p style="font-size: 1.2em;"><strong>Estado Actual:</strong> <span style="color: #03dac6;">${factoryStatus}</span></p>
+                <hr style="border-color: #333;">
+                <p><strong>Progreso del Lote:</strong> ${currentBatchCount} / ${BATCH_SIZE}</p>
+                <p><strong>Siguiente Lote Grande:</strong> ${nextBatchTime ? moment(nextBatchTime).fromNow() : 'En proceso...'}</p>
+                <p><strong>Último Video Generado:</strong> <br>
+                <a href="${lastVideoUrl}" target="_blank" style="color: #bb86fc; text-decoration: none;">Ver en Bunny.net</a></p>
             </div>
+            <p style="font-size: 0.8em; margin-top: 20px; color: #666;">Actualiza para refrescar estado.</p>
         </div>
     `);
 });
 
+// --- CONEXIÓN Y ARRANQUE ---
 mongoose.connect(process.env.MONGO_URI)
     .then(() => {
-        console.log("✅ Conectado a MongoDB");
+        console.log("✅ Conectado a MongoDB (Colección Shorts)");
         app.listen(PORT, () => {
-            console.log(`🌐 Servidor Web activo`);
-            startProductionLine();
+            console.log(`🌐 Dashboard activo en puerto ${PORT}`);
+            startBatchProduction(); // ¡Arranca la fábrica!
         });
     })
-    .catch(err => console.error("❌ Error MongoDB:", err));
+    .catch(err => console.error("❌ Error Fatal MongoDB:", err));
 
-async function startProductionLine() {
-    console.log(`\n🚀 FÁBRICA INICIADA: ${MAX_SHORTS} videos al día.`);
+
+/**
+ * 🏭 LÍNEA DE PRODUCCIÓN POR LOTES
+ * Estrategia: 5 Videos -> Descanso 5 Horas -> Repetir
+ */
+async function startBatchProduction() {
+    console.log(`\n🚀 FÁBRICA INICIADA: Estrategia ${BATCH_SIZE} videos cada ${BATCH_COOLDOWN_HOURS} horas.`);
 
     while (true) {
-        let tempImagePath = null;
-        let tempVideoPath = null;
+        // --- INICIO DEL LOTE DE 5 VIDEOS ---
+        console.log(`\n📦 INICIANDO NUEVO LOTE DE ${BATCH_SIZE} VIDEOS...`);
+        currentBatchCount = 0;
 
-        try {
-            console.log("\n" + "=".repeat(50));
-            console.log(`🎬 PRODUCIENDO SHORT: ${moment().format('HH:mm:ss')}`);
-            console.log("=".repeat(50));
+        for (let i = 1; i <= BATCH_SIZE; i++) {
+            currentBatchCount = i;
+            let tempImagePath = null;
+            let tempVideoPath = null;
 
-            // 1. IA (Idea + Imagen)
-            factoryStatus = "🧠 Creando concepto...";
-            const aiData = await generateShortData();
-            tempImagePath = aiData.localImagePath;
-
-            // 2. VIDEO (FFmpeg)
-            factoryStatus = "⚙️ Renderizando MP4...";
-            tempVideoPath = await renderShortVideo(tempImagePath, PLAYLIST_URL, SHORT_DURATION);
-
-            // 3. SUBIR A YOUTUBE (Prioridad)
-            factoryStatus = "🚀 Subiendo a YouTube...";
-            let youtubeId = null;
             try {
-                youtubeId = await uploadToYouTube(tempVideoPath, aiData.title, aiData.description);
-                lastYoutubeId = youtubeId;
-                console.log(`   🔴 Publicado en YouTube: https://youtu.be/${youtubeId}`);
-            } catch (ytError) {
-                console.error("   ⚠️ Falló subida a YouTube (Se guardará solo en Bunny):", ytError.message);
+                console.log(`\n🎬 [VIDEO ${i}/${BATCH_SIZE}] Produciendo Short...`);
+                
+                // 1. GENERAR ARTE Y TEXTO
+                factoryStatus = `Lote ${i}/${BATCH_SIZE}: 🧠 Generando Idea...`;
+                const aiData = await generateShortData();
+                tempImagePath = aiData.localImagePath;
+                console.log(`   📝 Título: "${aiData.title}"`);
+
+                // 2. RENDERIZAR VIDEO (FHD)
+                factoryStatus = `Lote ${i}/${BATCH_SIZE}: ⚙️ Renderizando Video...`;
+                tempVideoPath = await renderShortVideo(
+                    tempImagePath, 
+                    PLAYLIST_URL, 
+                    SHORT_DURATION
+                );
+
+                // 3. SUBIR A YOUTUBE (Prioridad)
+                factoryStatus = `Lote ${i}/${BATCH_SIZE}: 🚀 Subiendo a YouTube...`;
+                let youtubeId = null;
+                try {
+                    youtubeId = await uploadToYouTube(tempVideoPath, aiData.title, aiData.description);
+                    console.log(`   🔴 Publicado en YouTube! ID: ${youtubeId}`);
+                } catch (ytError) {
+                    console.error("   ⚠️ Error subiendo a YouTube (Continuando...):", ytError.message);
+                }
+
+                // 4. SUBIR A BUNNY (Backup)
+                factoryStatus = `Lote ${i}/${BATCH_SIZE}: ☁️ Guardando Backup...`;
+                const uploadData = await uploadToBunny(tempVideoPath, `short_batch_${Date.now()}.mp4`);
+                lastVideoUrl = uploadData.url;
+
+                // 5. GUARDAR REGISTRO DB
+                const newShort = new Short({
+                    title: aiData.title,
+                    description: aiData.description,
+                    video_url: uploadData.url,
+                    bunny_storage_path: uploadData.storagePath,
+                    youtube_id: youtubeId,
+                    status: youtubeId ? 'UPLOADED' : 'GENERATED_ONLY'
+                });
+                await newShort.save();
+
+                // 6. LIMPIEZA DE ARCHIVOS
+                cleanupFiles(tempImagePath);
+                cleanupFiles(tempVideoPath);
+
+                console.log(`   ✅ Video ${i} completado exitosamente.`);
+
+                // SI NO ES EL ÚLTIMO, ESPERAMOS UNOS MINUTOS (ANTI-SPAM)
+                if (i < BATCH_SIZE) {
+                    factoryStatus = `Descanso técnico (${SAFETY_DELAY_MINUTES} min) entre videos...`;
+                    console.log(`⏳ Esperando ${SAFETY_DELAY_MINUTES} minutos antes del siguiente video...`);
+                    await new Promise(r => setTimeout(r, SAFETY_DELAY_MINUTES * 60 * 1000));
+                }
+
+            } catch (error) {
+                console.error(`❌ Falló el video ${i}:`, error.message);
+                factoryStatus = "⚠️ Error recuperable, intentando siguiente...";
+                // Limpieza de emergencia
+                cleanupFiles(tempImagePath);
+                cleanupFiles(tempVideoPath);
+                // Esperamos 1 minuto y seguimos con el siguiente del lote
+                await new Promise(r => setTimeout(r, 60000));
             }
-
-            // 4. SUBIR A BUNNY (Backup para TikTok)
-            factoryStatus = "☁️ Guardando backup en Bunny...";
-            const uploadData = await uploadToBunny(tempVideoPath, `short_${Date.now()}.mp4`);
-            lastVideoUrl = uploadData.url;
-
-            // 5. REGISTRAR EN DB
-            const newShort = new Short({
-                title: aiData.title,
-                description: aiData.description,
-                video_url: uploadData.url,
-                bunny_storage_path: uploadData.storagePath,
-                youtube_id: youtubeId,
-                status: youtubeId ? 'UPLOADED_YOUTUBE' : 'GENERATED_ONLY'
-            });
-            await newShort.save();
-
-            // 6. LIMPIEZA
-            cleanupFiles(tempImagePath);
-            cleanupFiles(tempVideoPath);
-
-            // 7. DORMIR
-            nextRunTime = Date.now() + INTERVAL_MS;
-            factoryStatus = "💤 Esperando siguiente turno...";
-            const minutesToWait = INTERVAL_MS / 60000;
-            console.log(`⏳ Durmiendo ${minutesToWait.toFixed(1)} minutos...`);
-            await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
-
-        } catch (error) {
-            console.error("❌ ERROR GENERAL:", error.message);
-            factoryStatus = "⚠️ Error - Reintentando en 5 min...";
-            if (tempImagePath) cleanupFiles(tempImagePath);
-            if (tempVideoPath) cleanupFiles(tempVideoPath);
-            await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
         }
+
+        // --- FIN DEL LOTE: A DORMIR 5 HORAS ---
+        const sleepMs = BATCH_COOLDOWN_HOURS * 60 * 60 * 1000;
+        nextBatchTime = Date.now() + sleepMs;
+        
+        console.log(`\n💤 LOTE TERMINADO. Durmiendo ${BATCH_COOLDOWN_HOURS} horas...`);
+        factoryStatus = `💤 Durmiendo hasta: ${moment(nextBatchTime).format('HH:mm')}`;
+        
+        await new Promise(resolve => setTimeout(resolve, sleepMs));
     }
 }
