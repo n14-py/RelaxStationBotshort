@@ -110,7 +110,7 @@ async function generateShortData() {
         if (fs.existsSync(spotifyPath)) {
             const logoBuffer = await sharp(spotifyPath).resize(40, 40).toBuffer();
             // Calculamos posición para centrarlo (720/2 - 20 = 340) y ponerlo encima del texto (y=1000)
-            layers.push({ input: logoBuffer, top: 1000, left: 340 });
+            layers.push({ input: logoBuffer, top: 960, left: 340 });
         }
 
         // Componemos la imagen final
