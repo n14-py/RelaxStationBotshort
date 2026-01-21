@@ -3,127 +3,118 @@ const express = require('express');
 const mongoose = require('mongoose');
 const moment = require('moment');
 
-// --- IMPORTAMOS NUESTROS MÓDULOS ---
-const { prepareNextStream } = require('./utils/aiGenerator');
-const { createYoutubeBroadcast } = require('./utils/youtubeManager');
-const { startStream, stopStream } = require('./utils/streamer');
-const Stream = require('./models/Stream');
+// Módulos
+const { generateShortData } = require('./utils/aiGenerator');
+const { renderShortVideo, cleanupFiles } = require('./utils/videoEngine');
+const { uploadToBunny } = require('./utils/bunnyHandler');
+const { uploadToYouTube } = require('./utils/youtubeUploader'); // <--- NUEVO
+const Short = require('./models/Short');
 
+// Configuración
 const PORT = process.env.PORT || 8080;
-const CYCLE_DURATION_HOURS = 12; // Cada 12 horas cambia el arte y la playlist
+const MAX_SHORTS = parseInt(process.env.MAX_SHORTS_PER_DAY) || 20;
+const SHORT_DURATION = parseInt(process.env.SHORT_DURATION) || 58;
+const PLAYLIST_URL = process.env.PLAYLIST_URL;
 
-// --- SERVIDOR WEB (Para que Render no apague el bot) ---
+const INTERVAL_MS = (24 * 60 * 60 * 1000) / MAX_SHORTS;
+
+// Estado
+let factoryStatus = "INICIANDO SISTEMA...";
+let lastVideoUrl = "Ninguno todavía";
+let lastYoutubeId = "Pendiente";
+let nextRunTime = null;
+
 const app = express();
-let botStatus = "INICIANDO";
-
 app.get('/', (req, res) => {
     res.send(`
-        <div style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1>📻 Relax Station V6 (Playlist Mode)</h1>
-            <p>Estado actual: <span style="color: green; font-weight: bold;">${botStatus}</span></p>
-            <p>Hora del servidor: ${moment().format('HH:mm:ss')}</p>
-            <hr>
-            <p>Transmitiendo desde la nube con música local optimizada.</p>
+        <div style="font-family: sans-serif; text-align: center; padding: 40px; background: #1a1a1a; color: white;">
+            <h1>🏭 Fábrica de Shorts - Relax Station</h1>
+            <div style="border: 1px solid #333; padding: 20px; border-radius: 10px; background: #222;">
+                <p><strong>Estado:</strong> ${factoryStatus}</p>
+                <p><strong>Meta:</strong> ${MAX_SHORTS} videos/día</p>
+                <p><strong>Siguiente:</strong> ${nextRunTime ? moment(nextRunTime).fromNow() : 'Calculando...'}</p>
+                <p><strong>Último Video (Bunny):</strong> <a href="${lastVideoUrl}" target="_blank" style="color: #4CAF50;">Ver Video</a></p>
+                <p><strong>Último YouTube ID:</strong> <span style="color: #f00;">${lastYoutubeId}</span></p>
+            </div>
         </div>
     `);
 });
 
-// --- CONEXIÓN A BASE DE DATOS Y ARRANQUE ---
 mongoose.connect(process.env.MONGO_URI)
     .then(() => {
-        console.log("✅ Conectado a MongoDB Atlas");
-        
+        console.log("✅ Conectado a MongoDB");
         app.listen(PORT, () => {
-            console.log(`🌐 Servidor Web activo en puerto ${PORT}`);
-            // Iniciamos el Bucle Infinito de Transmisión
-            mainLoop();
+            console.log(`🌐 Servidor Web activo`);
+            startProductionLine();
         });
     })
-    .catch(err => {
-        console.error("❌ ERROR CRÍTICO: No se pudo conectar a MongoDB.");
-        console.error(err);
-    });
+    .catch(err => console.error("❌ Error MongoDB:", err));
 
-/**
- * BUCLE PRINCIPAL (El corazón del Bot)
- */
-async function mainLoop() {
-    console.log("\n🚀 SISTEMA DE RADIO POR PLAYLIST INICIADO");
+async function startProductionLine() {
+    console.log(`\n🚀 FÁBRICA INICIADA: ${MAX_SHORTS} videos al día.`);
 
     while (true) {
-        let currentStream = null;
+        let tempImagePath = null;
+        let tempVideoPath = null;
 
         try {
             console.log("\n" + "=".repeat(50));
-            console.log(`🎬 INICIANDO NUEVO CICLO: ${moment().format('LLLL')}`);
-            console.log("=".repeat(50) + "\n");
+            console.log(`🎬 PRODUCIENDO SHORT: ${moment().format('HH:mm:ss')}`);
+            console.log("=".repeat(50));
 
-            // 1. GENERAR ARTE E IMAGEN (IA + BUNNY)
-            botStatus = "PREPARANDO ARTE IA";
-            console.log("🧠 [1/3] Generando concepto visual y subiendo a Bunny...");
-            
-            // Reintentos automáticos por si la IA está saturada
-            for (let i = 1; i <= 3; i++) {
-                try {
-                    currentStream = await prepareNextStream();
-                    break; 
-                } catch (e) {
-                    console.warn(`⚠️ Intento ${i} fallido. Reintentando en 15s...`);
-                    if (i === 3) throw new Error("Fallo total de los servicios de IA.");
-                    await new Promise(r => setTimeout(r, 15000));
-                }
+            // 1. IA (Idea + Imagen)
+            factoryStatus = "🧠 Creando concepto...";
+            const aiData = await generateShortData();
+            tempImagePath = aiData.localImagePath;
+
+            // 2. VIDEO (FFmpeg)
+            factoryStatus = "⚙️ Renderizando MP4...";
+            tempVideoPath = await renderShortVideo(tempImagePath, PLAYLIST_URL, SHORT_DURATION);
+
+            // 3. SUBIR A YOUTUBE (Prioridad)
+            factoryStatus = "🚀 Subiendo a YouTube...";
+            let youtubeId = null;
+            try {
+                youtubeId = await uploadToYouTube(tempVideoPath, aiData.title, aiData.description);
+                lastYoutubeId = youtubeId;
+                console.log(`   🔴 Publicado en YouTube: https://youtu.be/${youtubeId}`);
+            } catch (ytError) {
+                console.error("   ⚠️ Falló subida a YouTube (Se guardará solo en Bunny):", ytError.message);
             }
 
-            // 2. CONFIGURAR YOUTUBE
-            botStatus = "CONFIGURANDO YOUTUBE";
-            console.log("📡 [2/3] Creando evento en YouTube Live...");
-            currentStream = await createYoutubeBroadcast(currentStream);
+            // 4. SUBIR A BUNNY (Backup para TikTok)
+            factoryStatus = "☁️ Guardando backup en Bunny...";
+            const uploadData = await uploadToBunny(tempVideoPath, `short_${Date.now()}.mp4`);
+            lastVideoUrl = uploadData.url;
 
-            // 3. INICIAR TRANSMISIÓN (PLAYLIST)
-            botStatus = "EN VIVO 🔴";
-            console.log(`🚀 [3/3] Lanzando FFmpeg por ${CYCLE_DURATION_HOURS} horas...`);
+            // 5. REGISTRAR EN DB
+            const newShort = new Short({
+                title: aiData.title,
+                description: aiData.description,
+                video_url: uploadData.url,
+                bunny_storage_path: uploadData.storagePath,
+                youtube_id: youtubeId,
+                status: youtubeId ? 'UPLOADED_YOUTUBE' : 'GENERATED_ONLY'
+            });
+            await newShort.save();
 
-            // Actualizamos estado en MongoDB
-            currentStream.status = 'LIVE';
-            currentStream.startedAt = new Date();
-            await currentStream.save();
+            // 6. LIMPIEZA
+            cleanupFiles(tempImagePath);
+            cleanupFiles(tempVideoPath);
 
-            // URL de tu playlist en Cloudinary/Render
-            const playlistUrl = "https://lfaftechapi-7nrb.onrender.com/api/relax/playlist.txt";
-
-            // Pasamos los datos al streamer
-            // Esto se quedará aquí bloqueado las 12 horas hasta que FFmpeg termine
-            await startStream(
-                currentStream.bunny_image_url, 
-                playlistUrl, 
-                currentStream.youtube_rtmp_url, 
-                CYCLE_DURATION_HOURS
-            );
-
-            // 4. FINALIZACIÓN DEL CICLO
-            console.log("🏁 Ciclo completado con éxito.");
-            currentStream.status = 'FINISHED';
-            currentStream.finishedAt = new Date();
-            await currentStream.save();
-
-            botStatus = "CICLO TERMINADO - REINICIANDO";
-            console.log("💤 Esperando 30 segundos para la siguiente rotación...");
-            await new Promise(r => setTimeout(r, 30000));
+            // 7. DORMIR
+            nextRunTime = Date.now() + INTERVAL_MS;
+            factoryStatus = "💤 Esperando siguiente turno...";
+            const minutesToWait = INTERVAL_MS / 60000;
+            console.log(`⏳ Durmiendo ${minutesToWait.toFixed(1)} minutos...`);
+            await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
 
         } catch (error) {
-            console.error("\n❌ ERROR GRAVE EN EL BUCLE:");
-            console.error(error.message);
-            
-            botStatus = "ERROR - REINTENTANDO";
-            
-            if (currentStream) {
-                currentStream.status = 'ERROR';
-                await currentStream.save().catch(() => {});
-            }
-
-            stopStream(); // Aseguramos que el proceso no quede colgado
-            console.log("🔄 Reiniciando sistema en 1 minuto...");
-            await new Promise(r => setTimeout(r, 60000));
+            console.error("❌ ERROR GENERAL:", error.message);
+            factoryStatus = "⚠️ Error - Reintentando en 5 min...";
+            if (tempImagePath) cleanupFiles(tempImagePath);
+            if (tempVideoPath) cleanupFiles(tempVideoPath);
+            await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
         }
     }
 }

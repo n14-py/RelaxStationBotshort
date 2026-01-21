@@ -2,163 +2,135 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
-const Stream = require('../models/Stream');
-const { uploadToBunny } = require('./bunnyHandler');
 
-// --- CONFIGURACIÓN ---
-sharp.cache(false);
-sharp.concurrency(1);
-
+// Configuración de APIs
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
-// Modelo PrunaAI (Rápido y eficiente)
 const DEEPINFRA_API_URL = "https://api.deepinfra.com/v1/inference/PrunaAI/p-image";
 const ASSETS_DIR = path.join(__dirname, '../assets');
 
-/**
- * Genera contenido creativo variado, asegura estilo Lofi Anime y edita la imagen.
- */
-async function prepareNextStream() {
-    console.log("🧠 [Director IA] Iniciando proceso creativo (Modo: Variedad Total)...");
+// Configuración de Sharp para velocidad
+sharp.cache(false);
+sharp.concurrency(1);
 
-    const tempFileName = `cover_${Date.now()}.jpg`;
+/**
+ * Genera todo el contenido para un Short: Metadatos de texto + Imagen Vertical Editada
+ */
+async function generateShortData() {
+    console.log("🧠 [IA] Iniciando proceso creativo para Short Vertical...");
+
+    const tempFileName = `temp_short_bg_${Date.now()}.jpg`;
     const tempFilePath = path.join(__dirname, `../${tempFileName}`);
 
     try {
-        // ---------------------------------------------------------
-        // 1. GENERACIÓN DE TEXTO (EN ESPAÑOL + CREATIVIDAD)
-        // ---------------------------------------------------------
-        console.log("   > Consultando a DeepSeek...");
-        const webLink = process.env.WEBSITE_URL || "https://desderelaxstation.com";
-        const spotifyLink = process.env.SPOTIFY_URL || "#";
+        // -------------------------------------------------------------------------
+        // 1. GENERACIÓN DE TEXTO (Título, Descripción Viral y Prompt de Imagen)
+        // -------------------------------------------------------------------------
+        const websiteUrl = process.env.WEBSITE_URL;
+        const spotifyUrl = process.env.SPOTIFY_URL;
+        const liveUrl = process.env.LIVE_URL;
 
-        // PROMPT DEL SISTEMA: Le exigimos variedad y creatividad
-        const systemPrompt = `Eres el Director Creativo de "Relax Station", una radio Lofi 24/7.
-        Tu misión es crear un concepto ÚNICO para las próximas 12 horas.
+        const systemPrompt = `Eres el Social Media Manager de "Relax Station", una radio Lofi 24/7.
+        Tu objetivo es crear contenido viral para YouTube Shorts, TikTok e Instagram Reels.
         
-        ¡IMPORTANTE!: Tienes libertad creativa total. NO repitas escenarios típicos de "escritorio de estudio" o "cafetería". Imagina lugares diferentes: un tren nocturno en Japón, una cabaña en un bosque lluvioso, una azotea en una ciudad futurista, una playa al atardecer, una biblioteca antigua, un invernadero, etc. El mundo es tuyo.
-        
-        INSTRUCCIÓN OBLIGATORIA: Piensa, escribe y responde ÚNICAMENTE EN ESPAÑOL.
+        TUS TAREAS:
+        1. Crea un Título corto y atractivo en ESPAÑOL (max 60 caracteres).
+        2. Crea una Descripción que invite a la calma. DEBE incluir obligatoriamente estas frases exactas al final:
+           "🔴 ESTAMOS EN VIVO AHORA: ${liveUrl}"
+           "🎧 Escucha en Spotify: ${spotifyUrl}"
+           "🌐 Nuestra Web: ${websiteUrl}"
+        3. Crea un Prompt visual en INGLÉS para una imagen VERTICAL (9:16). Estilo: Anime Lofi, Nostálgico, Detallado.
+           (Ejemplos: "Vertical anime art, view from a rainy window at night", "Girl reading on a balcony at sunset").
         
         Responde SOLO con este JSON:
         {
-            "title": "Título atractivo en Español con emojis (max 90 chars)",
-            "description": "Descripción inspiradora y atmosférica en Español (min 3 párrafos)",
-            "concept_reasoning": "Breve explicación en Español de por qué elegiste este escenario único",
-            "scene_description": "Descripción detallada en INGLÉS de la escena física (ej: 'a cozy cabin window looking out at a rainy forest at dusk, a cat sleeping on the sill'). SOLO la escena, sin estilo."
+            "title": "Título aquí",
+            "description": "Descripción aquí...",
+            "image_prompt": "Prompt en inglés aquí..."
         }`;
 
         const textResponse = await axios.post(DEEPSEEK_API_URL, {
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: "Sorpréndeme con un concepto nuevo y diferente." }
+                { role: "user", content: "Genera un concepto nuevo para un video corto." }
             ],
             response_format: { type: "json_object" }
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}` } });
 
         const content = JSON.parse(textResponse.data.choices[0].message.content);
-        
-        // Footer de marketing
-        content.description += `\n\n👇 **LINKS OFICIALES** 👇\n🎧 Spotify: ${spotifyLink}\n🌐 Web: ${webLink}\n\n📻 *Transmitiendo desde Relax Station*`;
+        console.log(`   📝 Título generado: "${content.title}"`);
 
-        console.log(`   💡 Concepto: ${content.concept_reasoning}`);
-
-        // ---------------------------------------------------------
-        // 2. CONSTRUCCIÓN DEL PROMPT DE IMAGEN (ESTILO FORZADO)
-        // ---------------------------------------------------------
-        console.log("   > Generando imagen con DeepInfra (PrunaAI)...");
+        // -------------------------------------------------------------------------
+        // 2. GENERACIÓN DE IMAGEN (Vertical 720x1280)
+        // -------------------------------------------------------------------------
+        console.log("   🎨 Generando arte vertical con PrunaAI...");
         
-        // Aquí está la magia: Inyectamos la escena variable dentro de tu estilo fijo.
-        const masterStylePrompt = `Anime-style lofi illustration, calm and relaxing atmosphere, soft pastel colors, warm sunset lighting, dreamy sky with pink and orange clouds, cinematic lighting, peaceful mood, cozy vibes, high-quality digital art. 
-        
-        New original scene based on: ${content.scene_description}. 
-        
-        A small animal or character seen from behind (cat, dog, or person silhouette), quietly observing the scenery, creating a feeling of calm, nostalgia, and relaxation. Gentle depth of field, soft shadows, smooth brush strokes, anime background style, lofi aesthetic, ultra-detailed, clean illustration, no text.`;
+        // Forzamos las palabras clave de estilo en el prompt
+        const finalImagePrompt = `(Vertical orientation, 9:16 aspect ratio), ${content.image_prompt}, anime style, lofi aesthetic, highly detailed, 8k, soft lighting, relaxing atmosphere, no text`;
 
         const imgResponse = await axios.post(DEEPINFRA_API_URL, {
-            prompt: masterStylePrompt,
-            num_inference_steps: 25, 
-            width: 1024, 
-            height: 768  
+            prompt: finalImagePrompt,
+            num_inference_steps: 25,
+            width: 720,  // Ancho móvil
+            height: 1280 // Alto móvil
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPINFRA_API_KEY}` } });
 
         let imageBase64 = imgResponse.data.images?.[0]?.image_base64 || imgResponse.data.images?.[0];
-        if (!imageBase64) throw new Error("DeepInfra no devolvió imagen.");
+        if (!imageBase64) throw new Error("La IA no devolvió ninguna imagen.");
 
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
-        // ---------------------------------------------------------
-        // 3. EDICIÓN GRÁFICA (BRANDING)
-        // ---------------------------------------------------------
-        console.log("   > Editando imagen (Logo Izq + Texto)...");
+        // -------------------------------------------------------------------------
+        // 3. EDICIÓN Y BRANDING (Sharp)
+        // -------------------------------------------------------------------------
+        console.log("   🖌️ Aplicando branding y logo de Spotify...");
 
-        // Ajustamos lienzo a 1280x720
-        const resizedBuffer = await sharp(rawBuffer).resize(1280, 720).toBuffer();
-
-        // TEXTO: Centrado abajo, elegante, con sombra
+        // Creamos el texto SVG con sombra para que se lea bien sobre cualquier fondo
+        // Posición Y=1050 es ideal para que no lo tapen los botones de descripción de TikTok/Shorts
         const svgText = Buffer.from(`
-        <svg width="1280" height="720">
+        <svg width="720" height="1280">
             <defs>
                 <filter id="shadow" x="-1" y="-1" width="3" height="3">
                     <feFlood flood-color="black" flood-opacity="0.9"/>
                     <feComposite in2="SourceGraphic" operator="in"/>
-                    <feGaussianBlur stdDeviation="2"/>
+                    <feGaussianBlur stdDeviation="3"/>
                     <feOffset dx="2" dy="2" result="offsetblur"/>
                     <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
                 </filter>
             </defs>
-            <text x="50%" y="695" font-family="Arial" font-size="20" fill="white" text-anchor="middle" font-weight="bold" letter-spacing="3" filter="url(#shadow)">
+            <text x="50%" y="1050" font-family="Arial" font-size="28" fill="white" text-anchor="middle" font-weight="bold" letter-spacing="2" filter="url(#shadow)">
                 DESDE RELAX STATION
             </text>
         </svg>`);
 
         const layers = [{ input: svgText }];
 
-        // LOGO SPOTIFY: A la IZQUIERDA (Posición 380, lejos del texto)
+        // Añadimos el Logo de Spotify (Pequeño, centrado encima del texto)
         const spotifyPath = path.join(ASSETS_DIR, 'spotify_logo.png');
         if (fs.existsSync(spotifyPath)) {
-            const logoBuffer = await sharp(spotifyPath).resize(32, 32).toBuffer();
-            // Posición: left 380, top 672 (alineado al texto)
-            layers.push({ input: logoBuffer, top: 672, left: 440 });
+            const logoBuffer = await sharp(spotifyPath).resize(40, 40).toBuffer();
+            // Calculamos posición para centrarlo (720/2 - 20 = 340) y ponerlo encima del texto (y=1000)
+            layers.push({ input: logoBuffer, top: 1000, left: 340 });
         }
 
-        await sharp(resizedBuffer)
+        // Componemos la imagen final
+        await sharp(rawBuffer)
+            .resize(720, 1280) // Aseguramos dimensiones
             .composite(layers)
-            .jpeg({ quality: 90, mozjpeg: true })
+            .jpeg({ quality: 95 })
             .toFile(tempFilePath);
 
-        // ---------------------------------------------------------
-        // 4. SUBIDA A BUNNY Y GUARDADO EN DB
-        // ---------------------------------------------------------
-        console.log("   > Subiendo a Bunny.net...");
-        const bunnyData = await uploadToBunny(tempFilePath, tempFileName);
-
-        console.log("   > Guardando en MongoDB...");
-        // Guardamos el prompt maestro completo para referencia
-        const newStream = new Stream({
+        return {
             title: content.title,
             description: content.description,
-            concept_reasoning: content.concept_reasoning,
-            image_prompt: masterStylePrompt, // Guardamos el prompt final usado
-            bunny_image_url: bunnyData.url,
-            bunny_file_path: bunnyData.path,
-            status: 'READY'
-        });
-
-        await newStream.save();
-        
-        console.log("✅ ¡CONTENIDO LISTO Y VARIADO!");
-        console.log(`   ID: ${newStream._id}`);
-
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-
-        return newStream;
+            localImagePath: tempFilePath
+        };
 
     } catch (error) {
-        console.error("❌ Error Generación IA:", error.message);
+        console.error("❌ Error en aiGenerator:", error.message);
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
         throw error;
     }
 }
 
-module.exports = { prepareNextStream };
+module.exports = { generateShortData };
