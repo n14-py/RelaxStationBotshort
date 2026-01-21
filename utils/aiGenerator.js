@@ -20,27 +20,32 @@ async function generateShortData() {
 
     try {
         // -------------------------------------------------------------------------
-        // 1. GENERACIÓN DE TEXTO (Creatividad Aumentada)
+        // 1. GENERACIÓN DE TEXTO (Descripción Directa + Título Viral)
         // -------------------------------------------------------------------------
         const websiteUrl = process.env.WEBSITE_URL;
         const spotifyUrl = process.env.SPOTIFY_URL;
         const liveUrl = process.env.LIVE_URL;
 
-        const systemPrompt = `Eres el Director Creativo de "Desde Relax Station".
-        Tu misión es crear títulos VIRALES y MISTERIOSOS para Shorts de YouTube.
+        const systemPrompt = `Eres el Manager de Marketing de "Desde Relax Station".
+        Tu misión es llevar tráfico al LIVE de YouTube y a Spotify.
         
-        REGLAS DE ORO:
-        - 🚫 PROHIBIDO usar títulos aburridos como "Relax Total", "Música para dormir".
-        - ✅ USA títulos que generen curiosidad, nostalgia o emoción (Clickbait sano).
-        - Ejemplos buenos: "¿Te sientes solo?", "El sonido del silencio...", "No podrás dejar de escuchar", "3 AM Vibes".
+        REGLAS DE ORO PARA EL TÍTULO:
+        - Título corto, misterioso y viral (Clickbait emocional).
+        - Ejemplo: "¿Te sientes solo?", "El sonido que cura...", "3 AM Vibes 🌑".
+        
+        REGLAS DE ORO PARA LA DESCRIPCIÓN (STRICT MODE):
+        - La descripción NO puede empezar con poesía.
+        - DEBE EMPEZAR OBLIGATORIAMENTE invitando a entrar al Live YA MISMO.
+        - Estructura EXACTA requerida:
+          "🔴 ¡ESTAMOS EN VIVO! Entra a relajarte aquí: ${liveUrl}"
+          "🎧 Escucha nuestra Playlist en Spotify: ${spotifyUrl}"
+          "🌐 Visita nuestra web: ${websiteUrl}"
+          (Aquí abajo puedes poner una frase corta inspiradora sobre el título).
         
         TUS TAREAS:
-        1. Crea un Título en ESPAÑOL (max 60 caracteres) con un emoji.
-        2. Crea una Descripción invitando al LIVE. Formato obligatorio:
-           "¿Necesitas escapar? Estamos en vivo 🔴 ${liveUrl}"
-           "🎧 Spotify: ${spotifyUrl}"
-           "🌐 Web: ${websiteUrl}"
-        3. Crea un Prompt visual en INGLÉS para imagen VERTICAL. Estilo: "Masterpiece Anime Lofi", iluminación cinemática, muy detallado.
+        1. Generar Título.
+        2. Generar Descripción con la estructura de arriba.
+        3. Prompt visual en INGLÉS (Vertical, Anime Lofi Masterpiece, 8k).
         
         Responde SOLO JSON:
         {
@@ -53,7 +58,7 @@ async function generateShortData() {
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: "Genera algo viral y emotivo hoy." }
+                { role: "user", content: "Genera el siguiente Short viral." }
             ],
             response_format: { type: "json_object" }
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}` } });
@@ -71,7 +76,6 @@ async function generateShortData() {
         const imgResponse = await axios.post(DEEPINFRA_API_URL, {
             prompt: finalImagePrompt,
             num_inference_steps: 30,
-            // AJUSTE CRÍTICO: Usamos 768x1344 para respetar el límite de 1440 px
             width: 768, 
             height: 1344
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPINFRA_API_KEY}` } });
@@ -82,9 +86,9 @@ async function generateShortData() {
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
         // -------------------------------------------------------------------------
-        // 3. EDICIÓN Y ESCALADO (A 1080x1920 FHD)
+        // 3. EDICIÓN Y ESCALADO (Corrección: NO ESTIRAR)
         // -------------------------------------------------------------------------
-        console.log("   🖌️ Escalando a FHD y aplicando marca...");
+        console.log("   🖌️ Escalando a FHD (Cover) y aplicando marca...");
 
         // SVG Ajustado
         const svgText = Buffer.from(`
@@ -109,15 +113,17 @@ async function generateShortData() {
         const spotifyPath = path.join(ASSETS_DIR, 'spotify_logo.png');
         if (fs.existsSync(spotifyPath)) {
             const logoBuffer = await sharp(spotifyPath).resize(60, 60).toBuffer();
-            // Posición ajustada
             layers.push({ input: logoBuffer, top: 1480, left: 510 });
         }
 
-        // PROCESADO FINAL: Aquí transformamos la imagen segura (768x1344) a Full HD (1080x1920)
+        // --- AQUÍ ESTÁ EL CAMBIO CLAVE (fit: 'cover') ---
         await sharp(rawBuffer)
-            .resize(1080, 1920, { fit: 'fill' }) // Forzamos FHD exacto
+            .resize(1080, 1920, { 
+                fit: 'cover',   // <--- ESTO EVITA QUE SE ESTIRE. Recorta lo que sobra.
+                position: 'center' 
+            }) 
             .composite(layers)
-            .jpeg({ quality: 100 }) // Calidad máxima
+            .jpeg({ quality: 100 }) 
             .toFile(tempFilePath);
 
         return {
@@ -127,7 +133,6 @@ async function generateShortData() {
         };
 
     } catch (error) {
-        // Mejor manejo de error para ver detalles si falla de nuevo
         const errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
         console.error("❌ Error en aiGenerator:", errorMsg);
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
