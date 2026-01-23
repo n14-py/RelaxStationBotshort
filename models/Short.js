@@ -6,30 +6,31 @@ const ShortSchema = new mongoose.Schema({
         required: true
     },
     description: {
-        type: String, // Aquí guardaremos la descripción generada por IA con tus links
+        type: String,
         required: true
     },
     video_url: {
-        type: String, // La URL pública de Bunny.net para descargar el video .mp4 final
+        type: String,
         required: true
     },
     cover_url: {
-        type: String // La URL de la imagen vertical generada (por si la necesitas)
+        type: String
     },
     bunny_storage_path: {
-        type: String, // Ruta interna en Bunny (útil para borrar archivos viejos y ahorrar espacio)
+        type: String,
         required: true
     },
     music_track: {
-        type: String // Nombre de la canción utilizada
+        type: String
     },
     status: {
         type: String,
-        enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'],
+        // 👇 AQUÍ ESTÁ EL CAMBIO IMPORTANTE: Agregamos todas las opciones posibles
+        enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'UPLOADED', 'GENERATED', 'GENERATED_ONLY'],
         default: 'GENERATED'
     },
     youtube_id: {
-        type: String // ID del video si se sube automáticamente a YouTube
+        type: String
     },
     created_at: {
         type: Date,
