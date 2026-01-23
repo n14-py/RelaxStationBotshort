@@ -25,7 +25,7 @@ const ShortSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['GENERATED', 'UPLOADED_YOUTUBE', 'ERROR'],
+        enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'],
         default: 'GENERATED'
     },
     youtube_id: {
