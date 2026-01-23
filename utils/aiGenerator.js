@@ -13,91 +13,68 @@ sharp.cache(false);
 sharp.concurrency(1);
 
 /**
- * Genera el Short con Títulos de "Llamada a la Acción" y Escenarios Variados.
+ * Genera el Short con Estilo "Directo" (Historia + Título Poético) y Escenarios Variados.
  */
 async function generateShortData() {
-    console.log("🧠 [IA] Iniciando proceso creativo (Modo Variedad + Marketing Directo)...");
+    console.log("🧠 [IA] Iniciando proceso creativo (Modo: Estilo Directo + Variedad)...");
 
     const tempFileName = `temp_short_bg_${Date.now()}.jpg`;
     const tempFilePath = path.join(__dirname, `../${tempFileName}`);
 
     try {
         // -------------------------------------------------------------------------
-        // 1. ELEGIR ESCENARIO AL AZAR (Para evitar repetición)
+        // 1. GENERACIÓN DE TEXTO (Estilo "Directo" - Historia y Creatividad)
         // -------------------------------------------------------------------------
-        const scenarios = [
-            "Futuristic Cyberpunk Bedroom with Neon Lights",
-            "Cozy Ancient Library with Floating Books",
-            "Midnight Train traveling through a glowing city",
-            "Magical Forest with Bioluminescent Plants",
-            "Rooftop view of a rainy Tokyo street at night",
-            "Underwater Glass Observatory relaxing view",
-            "Coffee Shop window on a snowy evening",
-            "Space Station observation deck looking at Earth",
-            "Abandoned Greenhouse filled with flowers",
-            "Sunset at a lonely Bus Stop in the countryside"
-        ];
-        // Seleccionamos uno al azar para forzar variedad
-        const selectedScenario = scenarios[Math.floor(Math.random() * scenarios.length)];
-        console.log(`   🌍 Escenario elegido por el sistema: "${selectedScenario}"`);
-
-        // -------------------------------------------------------------------------
-        // 2. GENERACIÓN DE TEXTO (Marketing Agresivo)
-        // -------------------------------------------------------------------------
-        const websiteUrl = process.env.WEBSITE_URL;
         
-        const systemPrompt = `Eres el Marketing Manager de "Relax Station".
-        Tu objetivo es que la gente haga CLICK y entre al LIVE ahora mismo.
+        // PROMPT DEL SISTEMA: Copiado del directo pero solicitando formato JSON para Shorts
+        const systemPrompt = `Eres el Director Creativo de "Relax Station", una radio Lofi 24/7.
+        Tu misión es crear un concepto ÚNICO para las próximas 12 horas.
         
-        REGLAS ESTRICTAS PARA EL TÍTULO (Call to Action):
-        - 🚫 PROHIBIDO: Frases cursis como "Recuerdas...", "Nostalgia...", "Paz interior".
-        - ✅ OBLIGATORIO: Títulos que inviten a entrar al directo o generen urgencia.
-        - Ejemplos Aprobados: "🔴 ¡ESTAMOS EN VIVO!", "¿Ya entraste?", "Tu refugio está activo 24/7", "¡Corre al Live!", "¿Necesitas dormir?", "Música para estudiar 📚".
+        ¡IMPORTANTE!: Tienes libertad creativa total. NO repitas escenarios típicos de "escritorio de estudio" o "cafetería". Imagina lugares diferentes: un tren nocturno en Japón, una cabaña en un bosque lluvioso, una azotea en una ciudad futurista, una playa al atardecer, una biblioteca antigua, un invernadero, etc. El mundo es tuyo.
         
-        REGLAS PARA LA DESCRIPCIÓN:
-        - Primera línea: "🔴 ¡ESTAMOS EN VIVO! Entra al PERFIL para escuchar."
-        - Tags obligatorios al final: #desderelaxstation #lofi #live
+        INSTRUCCIÓN OBLIGATORIA: Piensa, escribe y responde ÚNICAMENTE EN ESPAÑOL.
         
-        TUS TAREAS:
-        1. Título Llamativo (Directo al grano).
-        2. Descripción corta.
-        3. Prompt Visual: Te doy este escenario base: "${selectedScenario}". 
-           Mejora ese prompt añadiendo detalles de "Masterpiece Anime Style, Makoto Shinkai lighting".
-        
-        Responde SOLO JSON:
+        Responde SOLO con este JSON:
         {
-            "title": "Título...",
-            "description": "Descripción...",
-            "image_prompt": "Prompt visual mejorado..."
+            "title": "Título atractivo en Español con emojis (max 90 chars, poético y descriptivo, NO clickbait)",
+            "description": "Descripción inspiradora y atmosférica en Español que cuente una pequeña historia (min 2 párrafos)",
+            "concept_reasoning": "Breve explicación en Español de por qué elegiste este escenario único",
+            "scene_description": "Descripción detallada en INGLÉS de la escena física (ej: 'a cozy cabin window looking out at a rainy forest at dusk, a cat sleeping on the sill'). SOLO la escena, sin estilo."
         }`;
 
         const textResponse = await axios.post(DEEPSEEK_API_URL, {
             model: "deepseek-chat",
             messages: [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: "Genera el contenido ahora." }
+                { role: "user", content: "Sorpréndeme con un concepto nuevo y diferente para hoy." }
             ],
             response_format: { type: "json_object" }
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}` } });
 
         const content = JSON.parse(textResponse.data.choices[0].message.content);
+        console.log(`   💡 Concepto: ${content.concept_reasoning}`);
         console.log(`   📝 Título generado: "${content.title}"`);
 
+        // Añadimos Tags al final de la descripción para mantener el alcance en Shorts
+        content.description += `\n\n#desderelaxstation #lofi #lofimusic #relax #shorts`;
+
         // -------------------------------------------------------------------------
-        // 3. GENERACIÓN DE IMAGEN (Estilo Visual Coherente pero Variado)
+        // 2. GENERACIÓN DE IMAGEN (Estilo Directo + Formato Vertical)
         // -------------------------------------------------------------------------
-        console.log("   🎨 Generando arte único con PrunaAI...");
+        console.log("   🎨 Generando arte único con PrunaAI (Estilo Directo)...");
         
-        // Mantenemos la "firma visual" (estilo) pero cambiamos el contenido (escenario)
-        const masterStyle = "anime style, highly detailed, 8k resolution, cinematic lighting, sharp focus, masterpiece, no text";
+        // Prompt Maestro del "Directo" + Ajuste Vertical (9:16)
+        const masterStylePrompt = `(Vertical orientation, 9:16 aspect ratio), Anime-style lofi illustration, calm and relaxing atmosphere, soft pastel colors, warm sunset lighting, dreamy sky with pink and orange clouds, cinematic lighting, peaceful mood, cozy vibes, high-quality digital art. 
         
-        const finalImagePrompt = `(Vertical orientation, 9:16 aspect ratio), ${content.image_prompt}, ${masterStyle}`;
+        New original scene based on: ${content.scene_description}. 
+        
+        A small animal or character seen from behind (cat, dog, or person silhouette), quietly observing the scenery, creating a feeling of calm, nostalgia, and relaxation. Gentle depth of field, soft shadows, smooth brush strokes, anime background style, lofi aesthetic, ultra-detailed, clean illustration, no text.`;
 
         const imgResponse = await axios.post(DEEPINFRA_API_URL, {
-            prompt: finalImagePrompt,
-            num_inference_steps: 30, 
-            width: 768,   // Ancho seguro
-            height: 1344  // Alto seguro
+            prompt: masterStylePrompt,
+            num_inference_steps: 30, // Calidad alta
+            width: 768,   // Ancho para vertical
+            height: 1344  // Alto para vertical
         }, { headers: { "Authorization": `Bearer ${process.env.DEEPINFRA_API_KEY}` } });
 
         let imageBase64 = imgResponse.data.images?.[0]?.image_base64 || imgResponse.data.images?.[0];
@@ -106,7 +83,7 @@ async function generateShortData() {
         const rawBuffer = Buffer.from(imageBase64.replace(/^data:image\/png;base64,/, ""), 'base64');
 
         // -------------------------------------------------------------------------
-        // 4. EDICIÓN Y BRANDING (Full HD 1080x1920)
+        // 3. EDICIÓN Y BRANDING (Full HD 1080x1920 - Formato original intacto)
         // -------------------------------------------------------------------------
         console.log("   🖌️ Procesando imagen final...");
 
@@ -131,6 +108,7 @@ async function generateShortData() {
         const spotifyPath = path.join(ASSETS_DIR, 'spotify_logo.png');
         if (fs.existsSync(spotifyPath)) {
             const logoBuffer = await sharp(spotifyPath).resize(60, 60).toBuffer();
+            // Posición original del Short
             layers.push({ input: logoBuffer, top: 1480, left: 510 });
         }
 
